@@ -1,0 +1,19 @@
+node_modules/
+.next/
+prisma/dev.db
+backups/
+data/images/
+sample-data/
+sample data/
+*.sqlite
+.env
+.env.*
+.DS_Store
+
+# Generated quote files and verification artifacts may contain real customer data.
+outputs/
+
+# Local-only tool settings and build caches.
+.claude/settings.local.json
+tsconfig.tsbuildinfo
+/generated/prisma

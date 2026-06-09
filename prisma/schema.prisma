@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model File {
+  id                   String   @id @default(uuid())
+  fileName             String   @map("file_name")
+  fileType             String   @map("file_type")
+  fileSize             BigInt   @map("file_size")
+  folderName           String?  @map("folder_name")
+  factoryGuess         String?  @map("factory_guess")
+  volumeName           String   @map("volume_name")
+  relativePath         String   @map("relative_path")
+  absolutePathSnapshot String   @map("absolute_path_snapshot")
+  modifiedAt           DateTime @map("modified_at")
+  scannedAt            DateTime @default(now()) @map("scanned_at")
+
+  rawProducts    RawProduct[]
+  supplierOffers SupplierOffer[]
+
+  @@unique([volumeName, relativePath])
+  @@index([fileType])
+  @@index([fileName])
+  @@map("files")
+}
+
+model RawProduct {
+  id             String   @id @default(uuid())
+  sourceFileId   String   @map("source_file_id")
+  factoryName    String?  @map("factory_name")
+  rawProductName String?  @map("raw_product_name")
+  rawModelNo     String?  @map("raw_model_no")
+  rawPrice       Decimal? @map("raw_price")
+  rawCurrency    String?  @map("raw_currency")
+  rawMoq         String?  @map("raw_moq")
+  rawMaterial    String?  @map("raw_material")
+  rawSize        String?  @map("raw_size")
+  rawDescription String?  @map("raw_description")
+  rawRemark      String?  @map("raw_remark")
+  rawRowData     Json     @map("raw_row_data")
+  sourceSheetName String? @map("source_sheet_name")
+  headerRowIndex Int?     @map("header_row_index")
+  rawStatus      String   @default("pending") @map("raw_status")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  sourceFile File @relation(fields: [sourceFileId], references: [id], onDelete: Restrict)
+
+  @@index([sourceFileId])
+  @@index([rawStatus])
+  @@map("raw_products")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  productName String   @map("product_name")
+  category    String?
+  modelNo     String?  @map("model_no")
+  material    String?
+  size        String?
+  imagePath   String?  @map("image_path")
+  remark      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  supplierOffers SupplierOffer[]
+  quoteItems     QuoteItem[]
+
+  @@index([productName])
+  @@index([modelNo])
+  @@map("products")
+}
+
+model SupplierOffer {
+  id            String   @id @default(uuid())
+  productId     String   @map("product_id")
+  factoryName   String   @map("factory_name")
+  purchasePrice Decimal  @map("purchase_price")
+  currency      String
+  moq           String?
+  ctnQty        String?  @map("ctn_qty")
+  ctnSize       String?  @map("ctn_size")
+  ctnLength     String?  @map("ctn_length")
+  ctnWidth      String?  @map("ctn_width")
+  ctnHeight     String?  @map("ctn_height")
+  leadTime      String?  @map("lead_time")
+  sourceFileId  String?  @map("source_file_id")
+  remark        String?
+  priceUpdatedAt DateTime? @map("price_updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  product    Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sourceFile File?   @relation(fields: [sourceFileId], references: [id], onDelete: SetNull)
+  quoteItems QuoteItem[]
+
+  @@index([productId])
+  @@index([factoryName])
+  @@map("supplier_offers")
+}
+
+model Quote {
+  id           String   @id @default(uuid())
+  customerName String   @map("customer_name")
+  currency     String
+  profitMargin Decimal  @map("profit_margin")
+  exchangeRate Decimal? @map("exchange_rate")
+  quoteFilePath String? @map("quote_file_path")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  items QuoteItem[]
+
+  @@index([customerName])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id              String   @id @default(uuid())
+  quoteId         String   @map("quote_id")
+  productId       String   @map("product_id")
+  supplierOfferId String?  @map("supplier_offer_id")
+  purchasePrice   Decimal  @map("purchase_price")
+  purchaseCurrency String  @map("purchase_currency")
+  salePrice       Decimal  @map("sale_price")
+  quantity        Int
+  remark          String?
+
+  quote         Quote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  supplierOffer SupplierOffer? @relation(fields: [supplierOfferId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@index([productId])
+  @@map("quote_items")
+}
