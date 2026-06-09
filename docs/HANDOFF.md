@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-09
-Source: Claude web chat session covering V1.3 → V2.7
+Source: Claude web chat session covering V1.3 → V2.12
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.7)
+## Current State (after V2.12)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -17,14 +17,19 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Non-data row skipping: sub-headers in data area auto-detected and skipped
 - Quote session management: auto-clear after export, "新建报价" button
 - Same-currency auto-detection: exchange rate auto-sets to 1 when currencies match
+- Fill-down model column support (V2.8 B1): merged cells / fill-down style model columns handled via `fillDownModelColumn: true`
+- Generated model_no (V2.8 C): files without stable model columns can generate customer-readable model from spec/power/size columns
+- Price version tracking (V2.10): import upsert by `product_id + factory_name` — update price + write `price_history` instead of creating duplicate offers
+- Multi-price parser (V2.11): cells like `3CCT:9 12CCT:10.5` split into separate variant products/offers with suffix
+- Image backfill round 2 (V2.12): rowRadius 1→3 + generated model component matching; 1,087→1,119 products with images
 
 ### Data
-- Products: 1,751 across 29 categories
-- Supplier offers: 2,392
-- Imported from: ~110 files
-- CTN coverage: ctn_qty 795 / L×W×H 666 out of 2,392 offers
-- Price timestamps: 54% (1,293 offers with price_updated_at)
-- Product images: 341 products have images
+- Products: 2,132 across 26 categories
+- Supplier offers: 2,223 (V2.9 cleaned 203 duplicate 2-offer groups)
+- Imported from: ~116 files
+- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,426 offers
+- Price timestamps: 69% (1,674 offers with price_updated_at)
+- Product images: 1,119 products have images (52% coverage, backfill from 84 source files, two rounds)
 
 ### Data Sources on Disk
 - `/Volumes/My Passport/AI 报价/发客户报价单汇总` — customer quotation summaries by category (98 Excel files)
@@ -74,6 +79,22 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - `各家工厂最新报价汇总` = factory quotations, prices are RMB (cost price). This is the correct source for supplier_offers.purchase_price.
 - V2.7 imported 30 files / 37 sheet entries from the second directory with strict price column verification.
 
+### Fill-down model column (V2.8)
+- Many factory files use merged cells or fill-down style: one model covers multiple variant rows, lower rows have empty model column
+- `HejiaImportMapping.fillDownModelColumn: boolean` added — when true, empty model cells inherit previous non-empty value
+- Validated with 德雷普灯丝灯: 91 → 271 valid rows
+
+### Generated model_no for files without model column (V2.8)
+- Some files have no stable model column (e.g., 一群狼净化灯 only has `灯珠型号=2835`)
+- Solution: generate customer-readable model from multiple columns (sheet + category + spec + power)
+- Applied to #26 中千, #27 一群狼, #28-30 恒百利
+- Also used to solve variant collapse: #1 德雷普 and #15 优泽 GX53 had multiple wattage variants under one model — generated model with `Model + Watts + Base + Size` to differentiate
+
+### Duplicate offer cleanup threshold (V2.8)
+- V2.8 A3 cleaned groups with ≥ 3 duplicate offers per model+factory
+- 204 groups with exactly 2 offers remain — not blocking, can be addressed in V2.9
+- Price difference > 30% groups (e.g., 合力 T80-A with RMB/USD mixed prices) were approved for cleanup after manual review
+
 ### parsePriceValue ¥ symbol priority (V2.7 bugfix)
 - Cells like "15000MA ¥282.5" contain spec numbers before the RMB price
 - Old parser extracted first number (15000), new parser extracts first number after ¥ (282.5)
@@ -97,17 +118,19 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 | V2.5 | Quote history search/detail/reuse | Reuse uses CURRENT prices, not snapshot |
 | V2.6 | Product image extraction | .xlsx zip + .xls LibreOffice conversion path |
 | V2.7 | Second directory batch import + parsePriceValue bugfix | Only import factory RMB prices, never FOB USD; ¥ symbol priority fix; 471 new products, 328 images auto-extracted |
+| V2.8 | Data quality audit + importer enhancement + review file import | Category merge (30→26), duplicate offer cleanup (-347), fill-down support, generated model_no for files without model column; +381 products, +145 images |
+| V2.9 | 2-offer duplicate cleanup + image backfill | Cleaned 203 duplicate 2-offer groups (-203 offers); backfilled images from 84 source files (486→1,087 products with images, 51% coverage) |
+| V2.10 | Price version tracking | Import upsert (product_id + factory_name) + price_history table; re-import updates price instead of creating duplicate; CTN/MOQ supplement without overwrite; quotes-client UX polish (scroll-to-history after export) |
+| V2.11 | Multi-price parser | `parseMultiPrice()` splits `3CCT:9 12CCT:10.5` into variant products/offers; +12 products from #26 中千 |
+| V2.12 | Image backfill round 2 | rowRadius 1→3 + generated model component matching; +32 products with images (1,087→1,119, 52% coverage) |
 
 ---
 
 ## What's Next (not started)
 
 ### Immediate Options (pick based on user feedback)
-1. **V2.8 数据质量审计** — 品类合并（地插灯/太阳能壁灯 → 太阳能壁灯）、重复 offer 清理、脏款号修正（model_no="/"）
-2. **Batch image backfill** — re-scan source files for pre-V2.7 products without images
-3. **V2.7 review 文件补导** — Step 1 标记 review 的 20+ 文件需 importer 增强（合并单元格、多阶梯价）
-4. **Price version tracking** — supplier_offers.price_updated_at exists but no update-vs-create flow
-5. **Git init** — 项目无版本控制，需初始化
+1. **Dangling quote_items fix** — 2 条 quote_items 引用悬空 offer（V2.9 之前已存在）
+2. **V3.0 AI / 规则化参数提取** — 从非结构化文本自动提取产品参数
 
 ### Not Now
 - PDF parsing (V3.0, high effort, uncertain value)

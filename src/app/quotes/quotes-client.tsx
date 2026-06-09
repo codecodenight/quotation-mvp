@@ -2,12 +2,16 @@
 
 import { type FormEvent, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
 import { formatDateTime, formatMoney } from "@/lib/format";
 import { buildQuoteHealth, type QuoteProductHealth } from "@/lib/quote-health";
-import type { QuoteDetail, QuoteSearchFilters, QuoteSearchResult } from "@/lib/quote-history";
+import {
+  createDefaultQuoteSearchFilters,
+  type QuoteDetail,
+  type QuoteSearchFilters,
+  type QuoteSearchResult,
+} from "@/lib/quote-history";
 import type { QuotePreviewData, QuotePreviewRow } from "@/lib/quote-preview";
 import {
   allSelectedOffersUseCurrency,
@@ -45,7 +49,6 @@ const SELECTED_ITEMS_STORAGE_KEY = "quotation-mvp:quote-selected-items:v1";
 const QUOTE_PARAMS_STORAGE_KEY = "quotation-mvp:quote-params:v1";
 
 export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: QuotesClientProps) {
-  const router = useRouter();
   const [mode, setMode] = useState<"editing" | "previewing">("editing");
   const [preview, setPreview] = useState<QuotePreviewData | null>(null);
   const [showProblemRowsOnly, setShowProblemRowsOnly] = useState(false);
@@ -54,6 +57,7 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
   const [isPending, startTransition] = useTransition();
   const [isHistoryPending, startHistoryTransition] = useTransition();
   const hasRestoredStorageRef = useRef(false);
+  const historySectionRef = useRef<HTMLDivElement>(null);
   const [selectedItems, setSelectedItems] = useState<Map<string, SelectedQuoteItem>>(new Map());
   const [customerName, setCustomerName] = useState("");
   const [profitMargin, setProfitMargin] = useState("0.2");
@@ -62,13 +66,7 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
   const [lastEditableExchangeRate, setLastEditableExchangeRate] = useState("7.2");
   const [customerMode, setCustomerMode] = useState(true);
   const [historyQuotes, setHistoryQuotes] = useState<QuoteHistoryRow[]>(quotes);
-  const [historyFilters, setHistoryFilters] = useState<Required<QuoteSearchFilters>>({
-    customerName: "",
-    dateFrom: "",
-    dateTo: "",
-    currency: "ALL",
-    productKeyword: "",
-  });
+  const [historyFilters, setHistoryFilters] = useState<Required<QuoteSearchFilters>>(createDefaultQuoteSearchFilters);
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
   const [quoteDetails, setQuoteDetails] = useState<Map<string, QuoteDetail>>(new Map());
   const [loadingQuoteId, setLoadingQuoteId] = useState<string | null>(null);
@@ -208,9 +206,29 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
     const formData = buildCurrentFormData();
     startTransition(async () => {
       try {
-        await createQuote(formData);
+        const result = await createQuote(formData);
         clearSelectedItemsAfterExport();
-        router.refresh();
+        setHistoryError(null);
+        try {
+          const defaultFilters = createDefaultQuoteSearchFilters();
+          const [latestQuotes, detail] = await Promise.all([
+            searchQuotes(defaultFilters),
+            getQuoteDetail(result.quoteId),
+          ]);
+          setHistoryFilters(defaultFilters);
+          setHistoryQuotes(latestQuotes);
+          setQuoteDetails((current) => {
+            const next = new Map(current);
+            next.set(result.quoteId, detail);
+            return next;
+          });
+          setExpandedQuoteId(result.quoteId);
+          setReuseNotice("报价已导出，历史列表已更新。");
+          window.setTimeout(scrollToHistory, 0);
+        } catch (refreshError) {
+          setHistoryError(refreshError instanceof Error ? refreshError.message : "历史列表刷新失败，请手动搜索。");
+          setReuseNotice("报价已导出。历史列表没有自动刷新，请点搜索或刷新页面查看。");
+        }
       } catch (error) {
         setActionError(error instanceof Error ? error.message : "报价生成失败。");
       }
@@ -283,9 +301,7 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
     setHistoryError(null);
     startHistoryTransition(async () => {
       try {
-        const results = await searchQuotes(historyFilters);
-        setHistoryQuotes(results);
-        setExpandedQuoteId(null);
+        await refreshHistoryQuotes(historyFilters);
       } catch (error) {
         setHistoryError(error instanceof Error ? error.message : "历史报价搜索失败。");
       }
@@ -330,6 +346,16 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
     setActionError(null);
     setReuseNotice(null);
     window.localStorage.removeItem(SELECTED_ITEMS_STORAGE_KEY);
+  }
+
+  async function refreshHistoryQuotes(filtersToUse: Required<QuoteSearchFilters>) {
+    const results = await searchQuotes(filtersToUse);
+    setHistoryQuotes(results);
+    setExpandedQuoteId(null);
+  }
+
+  function scrollToHistory() {
+    historySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function resetQuoteDraft() {
@@ -387,9 +413,14 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             新建报价
           </button>
-          <div className="rounded-md border border-line bg-paper px-4 py-2 text-sm shadow-panel">
+          <button
+            type="button"
+            onClick={scrollToHistory}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-paper px-4 text-sm font-semibold text-ink shadow-panel hover:border-leaf"
+          >
+            <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
             {historyQuotes.length} 条历史报价
-          </div>
+          </button>
         </div>
       </header>
 
@@ -472,20 +503,22 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
         ) : null}
       </div>
 
-      <QuoteHistoryTable
-        quotes={historyQuotes}
-        filters={historyFilters}
-        details={quoteDetails}
-        expandedQuoteId={expandedQuoteId}
-        loadingQuoteId={loadingQuoteId}
-        reusingQuoteId={reusingQuoteId}
-        isPending={isHistoryPending}
-        error={historyError}
-        onFilterChange={handleHistoryFilterChange}
-        onSearch={handleSearchHistory}
-        onToggleDetail={handleToggleQuoteDetail}
-        onReuseQuote={handleReuseQuote}
-      />
+      <div ref={historySectionRef}>
+        <QuoteHistoryTable
+          quotes={historyQuotes}
+          filters={historyFilters}
+          details={quoteDetails}
+          expandedQuoteId={expandedQuoteId}
+          loadingQuoteId={loadingQuoteId}
+          reusingQuoteId={reusingQuoteId}
+          isPending={isHistoryPending}
+          error={historyError}
+          onFilterChange={handleHistoryFilterChange}
+          onSearch={handleSearchHistory}
+          onToggleDetail={handleToggleQuoteDetail}
+          onReuseQuote={handleReuseQuote}
+        />
+      </div>
     </div>
   );
 }

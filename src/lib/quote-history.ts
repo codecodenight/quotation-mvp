@@ -10,6 +10,18 @@ export type QuoteSearchFilters = {
   productKeyword?: string;
 };
 
+export const DEFAULT_QUOTE_SEARCH_FILTERS: Required<QuoteSearchFilters> = {
+  customerName: "",
+  dateFrom: "",
+  dateTo: "",
+  currency: "ALL",
+  productKeyword: "",
+};
+
+export function createDefaultQuoteSearchFilters(): Required<QuoteSearchFilters> {
+  return { ...DEFAULT_QUOTE_SEARCH_FILTERS };
+}
+
 export type QuoteSearchResult = {
   id: string;
   customerName: string;

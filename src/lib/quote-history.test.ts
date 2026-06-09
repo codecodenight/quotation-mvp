@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildQuoteSearchWhere,
+  createDefaultQuoteSearchFilters,
   serializeQuoteDetail,
   serializeQuoteSearchResult,
 } from "./quote-history";
@@ -47,6 +48,19 @@ describe("quote history helpers", () => {
         productKeyword: " ",
       }),
     ).toEqual({});
+  });
+
+  test("creates an isolated default history filter set", () => {
+    const filters = createDefaultQuoteSearchFilters();
+    filters.customerName = "测试客户";
+
+    expect(createDefaultQuoteSearchFilters()).toEqual({
+      customerName: "",
+      dateFrom: "",
+      dateTo: "",
+      currency: "ALL",
+      productKeyword: "",
+    });
   });
 
   test("serializes quote search rows without item details", () => {

@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
-import { parsePriceValue, readSheetRows, type SheetRows } from "../src/lib/excel-import.ts";
-import { extractImagesFromExcel, storeExtractedImage, type ExtractedImage } from "../src/lib/image-extractor.ts";
+import { parsePriceValue, readSheetRows, type SheetRows } from "../src/lib/excel-import";
+import { extractImagesFromExcel, storeExtractedImage, type ExtractedImage } from "../src/lib/image-extractor";
 
 const prisma = new PrismaClient();
 

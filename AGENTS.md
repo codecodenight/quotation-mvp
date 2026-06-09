@@ -161,15 +161,21 @@ Phase 1 and Phase 2 may be done together.
 | V2.5 | 报价历史搜索 / 详情 / 复用 | ✓ |
 | V2.6 | 产品图提取（.xlsx zip 解压 + .xls LibreOffice 转换 + 缩略图生成） | ✓ |
 | V2.7 | 第二目录批量导入 + parsePriceValue ¥ 符号修复 | ✓ |
+| V2.8 | 数据质量审计 + Importer 增强 + Review 文件补导 | ✓ |
+| V2.9 | 2-Offer 重复清理 + Image Backfill | ✓ |
+| V2.10 | 价格版本追踪（import upsert + price_history） | ✓ |
+| V2.11 | Multi-price parser（多价格单元格拆分导入） | ✓ |
+| V2.12 | Image backfill round 2（扩大锚点搜索 + 组件匹配） | ✓ |
 
 ### Current Data
 
-- Products: 1,751 across 29 categories
-- Supplier offers: 2,392
-- Imported from 110+ quotation / 核价 files
-- Product images: 341
-- CTN coverage: ctn_qty 795 / L×W×H 666 out of 2,392 offers
-- Price timestamp coverage: 54% (1,293 offers with price_updated_at)
+- Products: 2,144 across 26 categories
+- Supplier offers: 2,235
+- Product images: 1,119 (52% coverage)
+- Imported from 116+ quotation / 核价 files
+- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,223 offers
+- Price timestamp coverage: 69% (1,674 offers with price_updated_at)
+- Price history: 0 records (table ready, awaiting re-imports with price changes)
 
 ### V2.0 Definition — Daily Internal Use Ready
 
@@ -208,7 +214,7 @@ Import factory Excel (multi-column merge, price cleaning, row skipping)
 - Runs via `npm run dev` only — no desktop packaging.
 - Single user — no auth or multi-user support.
 - Customer name is free text — no customer entity management.
-- No price version tracking — updating a supplier offer overwrites old price.
+- ~~No price version tracking~~ — resolved in V2.10 (import upsert + price_history table).
 - Quote history simple-list limitation resolved in V2.5 (search/detail/reuse added).
 - Generated quote file paths are absolute — fragile if files are moved.
 
@@ -224,8 +230,9 @@ Ordered by estimated business impact, not technical difficulty.
 | V2.4 | 重复产品审计 + 壁灯 Type A/B 区分 | Clean up duplicate model numbers |
 | V2.5 | Quote history search/detail/reuse | Find and reuse previous quotes |
 | V2.6 | 产品图提取 | Import embedded product images for newly imported quote files |
-| V2.8 | 导入后数据质量审计（品类合并、重复 offer 清理、脏款号修正） | Clean up post-import data quality issues |
-| V2.9 | 产品合并 / 报价去重工具 | Deduplicate products and offers with user confirmation |
+| ~~V2.10~~ | ~~价格版本追踪~~ | ~~Import upsert + price_history table~~ ✓ |
+| ~~V2.11~~ | ~~Multi-price parser~~ | ~~Handle `3CCT:9 12CCT:10.5` style cells~~ ✓ |
+| ~~V2.12~~ | ~~Image backfill round 2~~ | ~~Wider anchor search for generated model_no products~~ ✓ |
 | V3.0 | AI / 规则化参数提取 | Auto-extract specs from unstructured text |
 | V3.1 | Customer entity management | Replace free-text customer names with records |
 | V3.2 | Desktop packaging (Tauri) | Non-technical users can run without terminal |
@@ -525,9 +532,9 @@ These may be built as future enhancements on top of the MVP data layer.
 
 None. Pending next task assignment.
 
-## Known Data Quality Issues (post V2.7)
+## Known Data Quality Issues (post V2.9)
 
-1. 磁吸灯品类有一条 model_no = "/" 的脏记录
-2. "地插灯/太阳能壁灯"（5 条）与"太阳能壁灯"（82 条）品类重叠，需合并
-3. 合力 T80-A HIGH 系列、Wellux LPR/LPS 系列存在同 model+factory 多条 offer（4-7 条），跨批次重叠
-4. Step 1 标记 review 的 20+ 文件未导入（合并单元格、多阶梯价等需 importer 增强）
+1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
+2. 2 条 quote_items 的 supplier_offer_id 悬空（引用的 offer 在 V2.9 之前已不存在，非 V2.9 造成）
+3. #26 中千庭院灯有部分 `3CCT:... 12CCT:...` 多价格行未导入（需多价格解析器）
+4. 1,045 个产品无图（主要是 V2.8 生成款号产品和 anchor row 偏移 > ±1 的文件）
