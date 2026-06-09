@@ -41,7 +41,9 @@ type SourceFileGroup = {
 type ImageAssignment = {
   productId: string;
   modelNo: string;
+  anchorRow: number;
   matchedRowIndex: number;
+  distance: number;
   matchedCell: string;
 };
 
@@ -284,7 +286,9 @@ async function processSourceFile(
         result.sampleAssignments.push({
           productId: match.productId,
           modelNo: match.modelNo,
+          anchorRow: image.anchorRow,
           matchedRowIndex: match.matchedRowIndex,
+          distance: Math.abs(match.matchedRowIndex - image.anchorRow),
           matchedCell: match.matchedCell,
         });
       }
@@ -445,7 +449,7 @@ function buildMarkdownReport(result: BackfillRunResult): string {
   lines.push(`- Mode: ${summary.mode}`);
   lines.push("- Source Excel files: read-only");
   lines.push(`- ${copy.writeSummary}`);
-  lines.push("- Matching rule: image anchor row +/- 1 row; short model numbers require exact cell match.");
+  lines.push("- Matching rule: image anchor row +/- 3 rows by default; short model numbers require exact cell match.");
   lines.push("");
   lines.push("## Summary");
   lines.push("");
@@ -492,12 +496,12 @@ function buildMarkdownReport(result: BackfillRunResult): string {
   if (filesWithSamples.length === 0) {
     lines.push("- No matches found.");
   } else {
-    lines.push("| File | model_no | Row | Matched cell | product_id |");
-    lines.push("|---|---|---:|---|---|");
+    lines.push("| File | model_no | Anchor row | Matched row | Distance | Matched cell | product_id |");
+    lines.push("|---|---|---:|---:|---:|---|---|");
     for (const file of filesWithSamples) {
       for (const assignment of file.sampleAssignments.slice(0, 3)) {
         lines.push(
-          `| ${md(file.fileName)} | ${md(assignment.modelNo)} | ${assignment.matchedRowIndex + 1} | ${md(assignment.matchedCell)} | ${assignment.productId} |`,
+          `| ${md(file.fileName)} | ${md(assignment.modelNo)} | ${assignment.anchorRow + 1} | ${assignment.matchedRowIndex + 1} | ${assignment.distance} | ${md(assignment.matchedCell)} | ${assignment.productId} |`,
         );
       }
     }

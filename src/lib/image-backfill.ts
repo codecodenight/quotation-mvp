@@ -40,7 +40,8 @@ type CandidateHit = {
   distance: number;
 };
 
-const DEFAULT_ROW_RADIUS = 1;
+const DEFAULT_ROW_RADIUS = 3;
+const HEADER_LIKE_MODEL_KEYS = new Set(["model", "modelno", "item", "itemno", "型号", "产品型号"]);
 
 export function buildImageBackfillReportCopy(mode: ImageBackfillMode): ImageBackfillReportCopy {
   if (mode === "apply") {
@@ -127,14 +128,65 @@ function buildCandidateGroups(candidates: ImageBackfillCandidate[]): CandidateGr
     if (!isUsableModelKey(modelKey)) {
       continue;
     }
-    const existing = groups.get(modelKey);
-    if (existing) {
-      existing.products.push(candidate);
-    } else {
-      groups.set(modelKey, { modelKey, modelNo, products: [candidate] });
+
+    addCandidateGroup(groups, modelKey, modelNo, candidate);
+    for (const componentKey of extractGeneratedModelComponentKeys(modelNo, modelKey)) {
+      addCandidateGroup(groups, componentKey, modelNo, candidate);
     }
   }
   return Array.from(groups.values()).sort((a, b) => b.modelKey.length - a.modelKey.length);
+}
+
+function addCandidateGroup(
+  groups: Map<string, CandidateGroup>,
+  modelKey: string,
+  modelNo: string,
+  candidate: ImageBackfillCandidate,
+): void {
+  const existing = groups.get(modelKey);
+  if (existing) {
+    if (!existing.products.some((product) => product.productId === candidate.productId)) {
+      existing.products.push(candidate);
+    }
+    return;
+  }
+
+  groups.set(modelKey, { modelKey, modelNo, products: [candidate] });
+}
+
+function extractGeneratedModelComponentKeys(modelNo: string, fullModelKey: string): string[] {
+  if (!modelNo.includes(" - ") || modelNo.length <= 20) {
+    return [];
+  }
+
+  const keys = new Set<string>();
+  for (const part of modelNo.split(/\s+-\s+/)) {
+    const key = normalizeMatchKey(part);
+    if (key !== fullModelKey && isOriginalModelComponentKey(part, key)) {
+      keys.add(key);
+    }
+  }
+  return Array.from(keys);
+}
+
+function isOriginalModelComponentKey(rawPart: string, modelKey: string): boolean {
+  const part = cleanCell(rawPart);
+  if (modelKey.length < 5 || !/[a-z]/i.test(modelKey) || !/\d/.test(modelKey)) {
+    return false;
+  }
+  if (/[^\x00-\x7F]/.test(part)) {
+    return false;
+  }
+  if (/\s/.test(part) && !/[-_]/.test(part)) {
+    return false;
+  }
+  if (/[×*]/.test(part) || /\b\d+(?:\.\d+)?\s*(mm|cm)\b/i.test(part)) {
+    return false;
+  }
+  if (/^\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?\s*(v|w|lm|mah|a|hz)$/i.test(part)) {
+    return false;
+  }
+  return true;
 }
 
 function cellMatchesModel(cellKey: string, modelKey: string): boolean {
@@ -160,7 +212,11 @@ function chooseBestHit(hits: CandidateHit[]): CandidateHit | null {
 }
 
 function isUsableModelKey(modelKey: string): boolean {
-  return modelKey.length >= 2 && !/^\d+$/.test(modelKey);
+  return modelKey.length >= 2 && !/^\d+$/.test(modelKey) && !isHeaderLikeModelKey(modelKey);
+}
+
+function isHeaderLikeModelKey(modelKey: string): boolean {
+  return HEADER_LIKE_MODEL_KEYS.has(modelKey);
 }
 
 function cleanCell(value: unknown): string {
