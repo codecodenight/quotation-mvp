@@ -159,6 +159,44 @@ describe("buildHejiaImportRows", () => {
     });
   });
 
+  test("optionally fills down merged model cells", () => {
+    const baseInput = {
+      sourceFileId: "file-1",
+      sheetName: "Filament",
+      headerRowIndex: 1,
+      rows: [
+        ["Model", "Factory", "Price"],
+        ["A", "德雷普", "1"],
+        ["", "德雷普", "2"],
+        ["", "德雷普", "3"],
+        ["B", "德雷普", "4"],
+        ["", "德雷普", "5"],
+        ["C", "德雷普", "6"],
+      ],
+      mapping: {
+        modelNoColumn: 0,
+        factoryNameColumn: 1,
+        factoryPriceColumn: 2,
+        currency: "RMB",
+      },
+    };
+
+    const withoutFillDown = buildHejiaImportRows(baseInput);
+    const withFillDown = buildHejiaImportRows({
+      ...baseInput,
+      mapping: {
+        ...baseInput.mapping,
+        fillDownModelColumn: true,
+      },
+    });
+
+    expect(withoutFillDown.offers).toHaveLength(3);
+    expect(withoutFillDown.skippedRows).toHaveLength(3);
+    expect(withFillDown.offers.map((offer) => offer.modelNo)).toEqual(["A", "A", "A", "B", "B", "C"]);
+    expect(withFillDown.products.map((product) => product.modelNo)).toEqual(["A", "B", "C"]);
+    expect(withFillDown.skippedRows).toHaveLength(0);
+  });
+
   test("keeps legacy single description column behavior without header labels", () => {
     const imported = buildHejiaImportRows({
       sourceFileId: "file-1",

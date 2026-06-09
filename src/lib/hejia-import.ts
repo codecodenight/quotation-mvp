@@ -8,6 +8,7 @@ export type HejiaImportMapping = {
   currency: string;
   descriptionColumn?: number | null;
   descriptionColumns?: number[];
+  fillDownModelColumn?: boolean;
   sizeColumn?: number | null;
   moqColumn?: number | null;
   ctnQtyColumn?: number | null;
@@ -75,6 +76,7 @@ export function buildHejiaImportRows({
   const offers: HejiaOfferInput[] = [];
   const skippedRows: HejiaSkippedRow[] = [];
   let lastFactoryName: string | null = null;
+  let lastModelNo: string | null = null;
   const header = rows[headerRowIndex - 1] ?? [];
   const descCols =
     mapping.descriptionColumns ?? (mapping.descriptionColumn !== null && mapping.descriptionColumn !== undefined
@@ -88,11 +90,15 @@ export function buildHejiaImportRows({
       return;
     }
 
-    const modelNo = cellAt(row, mapping.modelNoColumn);
+    const mappedModelNo = cellAt(row, mapping.modelNoColumn);
+    const modelNo = mappedModelNo ?? (mapping.fillDownModelColumn ? lastModelNo : null);
     const mappedFactoryName = cellAt(row, mapping.factoryNameColumn);
     const factoryName = mappedFactoryName ?? lastFactoryName;
     const purchasePrice = parsePriceValue(cellAt(row, mapping.factoryPriceColumn));
 
+    if (mappedModelNo) {
+      lastModelNo = mappedModelNo;
+    }
     if (mappedFactoryName) {
       lastFactoryName = mappedFactoryName;
     }
