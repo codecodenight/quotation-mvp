@@ -1,5 +1,5 @@
 import type { SheetRows } from "./excel-import";
-import { parsePriceValue } from "./excel-import";
+import { parseMultiPrice, parsePriceValue, type MultiPriceEntry } from "./excel-import";
 
 export type HejiaImportMapping = {
   modelNoColumn: number | null;
@@ -57,6 +57,8 @@ export type HejiaSkippedRow = {
   rawData: string;
 };
 
+type ParsedPriceEntry = MultiPriceEntry | { variant: null; price: string };
+
 export function buildHejiaImportRows({
   sourceFileId,
   sheetName,
@@ -94,7 +96,7 @@ export function buildHejiaImportRows({
     const modelNo = mappedModelNo ?? (mapping.fillDownModelColumn ? lastModelNo : null);
     const mappedFactoryName = cellAt(row, mapping.factoryNameColumn);
     const factoryName = mappedFactoryName ?? lastFactoryName;
-    const purchasePrice = parsePriceValue(cellAt(row, mapping.factoryPriceColumn));
+    const priceCell = cellAt(row, mapping.factoryPriceColumn);
 
     if (mappedModelNo) {
       lastModelNo = mappedModelNo;
@@ -110,7 +112,8 @@ export function buildHejiaImportRows({
       skippedRows.push(buildSkippedRow(rowIndex, "缺少工厂名", row));
       return;
     }
-    if (!purchasePrice) {
+    const priceEntries = readPriceEntries(priceCell);
+    if (priceEntries.length === 0) {
       skippedRows.push(buildSkippedRow(rowIndex, "价格列非有效数字", row));
       return;
     }
@@ -123,31 +126,37 @@ export function buildHejiaImportRows({
     const coefficient = cellAt(row, mapping.coefficientColumn);
     const ctnDimensions = readCtnDimensions(row, mapping);
 
-    if (!productsByModelNo.has(modelNo)) {
-      productsByModelNo.set(modelNo, {
-        modelNo,
-        productName: hasExplicitDescriptionColumns ? modelNo : description ?? modelNo,
-        category: sheetName,
-        size,
-        remark: description,
-        sourceRowIndex: rowIndex - 1,
-      });
-    }
+    priceEntries.forEach((priceEntry) => {
+      const importedModelNo = priceEntry.variant ? `${modelNo} - ${priceEntry.variant}` : modelNo;
+      const baseProductName = hasExplicitDescriptionColumns ? modelNo : description ?? modelNo;
+      const productName = priceEntry.variant ? `${baseProductName} - ${priceEntry.variant}` : baseProductName;
 
-    offers.push({
-      modelNo,
-      factoryName,
-      purchasePrice,
-      currency: mapping.currency.trim().toUpperCase(),
-      moq: cellAt(row, mapping.moqColumn),
-      ctnQty: cleanIntegerText(cellAt(row, mapping.ctnQtyColumn)),
-      ctnLength: ctnDimensions.length,
-      ctnWidth: ctnDimensions.width,
-      ctnHeight: ctnDimensions.height,
-      sourceFileId,
-      customerUsdPrice,
-      coefficient,
-      remark: buildHejiaSupplierOfferRemark({ customerUsdPrice, coefficient }),
+      if (!productsByModelNo.has(importedModelNo)) {
+        productsByModelNo.set(importedModelNo, {
+          modelNo: importedModelNo,
+          productName,
+          category: sheetName,
+          size,
+          remark: description,
+          sourceRowIndex: rowIndex - 1,
+        });
+      }
+
+      offers.push({
+        modelNo: importedModelNo,
+        factoryName,
+        purchasePrice: priceEntry.price,
+        currency: mapping.currency.trim().toUpperCase(),
+        moq: cellAt(row, mapping.moqColumn),
+        ctnQty: cleanIntegerText(cellAt(row, mapping.ctnQtyColumn)),
+        ctnLength: ctnDimensions.length,
+        ctnWidth: ctnDimensions.width,
+        ctnHeight: ctnDimensions.height,
+        sourceFileId,
+        customerUsdPrice,
+        coefficient,
+        remark: buildHejiaSupplierOfferRemark({ customerUsdPrice, coefficient }),
+      });
     });
   });
 
@@ -156,6 +165,16 @@ export function buildHejiaImportRows({
     offers,
     skippedRows,
   };
+}
+
+function readPriceEntries(priceCell: string | null): ParsedPriceEntry[] {
+  const multiPriceEntries = parseMultiPrice(priceCell);
+  if (multiPriceEntries) {
+    return multiPriceEntries;
+  }
+
+  const purchasePrice = parsePriceValue(priceCell);
+  return purchasePrice ? [{ variant: null, price: purchasePrice }] : [];
 }
 
 export function mergeColumnsToRemark(

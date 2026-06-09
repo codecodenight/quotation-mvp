@@ -129,6 +129,46 @@ describe("buildHejiaImportRows", () => {
     expect(imported.skippedRows).toEqual([{ rowIndex: 6, reason: "价格列非有效数字", rawData: "WL-003 | 无价格 |  |  |  |  | 蓝赛 |  |  | " }]);
   });
 
+  test("splits multi-price cells into independent product variants and offers", () => {
+    const imported = buildHejiaImportRows({
+      sourceFileId: "file-1",
+      sheetName: "庭院灯",
+      headerRowIndex: 1,
+      rows: [
+        ["型号", "描述", "工厂", "价格", "MOQ", "CTN Qty", "Carton Size"],
+        ["ZQ-BD-005", "太阳能庭院灯", "中千", "3CCT:9 12CCT:10.5", "500", "12", "52×49×27 cm"],
+      ],
+      mapping: {
+        modelNoColumn: 0,
+        descriptionColumn: 1,
+        factoryNameColumn: 2,
+        factoryPriceColumn: 3,
+        moqColumn: 4,
+        ctnQtyColumn: 5,
+        ctnSizeColumn: 6,
+        currency: "RMB",
+      },
+    });
+
+    expect(imported.products.map((product) => [product.modelNo, product.productName])).toEqual([
+      ["ZQ-BD-005 - 3CCT", "太阳能庭院灯 - 3CCT"],
+      ["ZQ-BD-005 - 12CCT", "太阳能庭院灯 - 12CCT"],
+    ]);
+    expect(imported.offers.map((offer) => [offer.modelNo, offer.purchasePrice])).toEqual([
+      ["ZQ-BD-005 - 3CCT", "9"],
+      ["ZQ-BD-005 - 12CCT", "10.5"],
+    ]);
+    expect(imported.offers[0]).toMatchObject({
+      factoryName: "中千",
+      moq: "500",
+      ctnQty: "12",
+      ctnLength: "52",
+      ctnWidth: "49",
+      ctnHeight: "27",
+    });
+    expect(imported.skippedRows).toEqual([]);
+  });
+
   test("prefers separately mapped carton dimensions over a combined carton size column", () => {
     const imported = buildHejiaImportRows({
       sourceFileId: "file-1",

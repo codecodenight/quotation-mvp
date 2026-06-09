@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { join } from "node:path";
 
-import { buildRawProductRows, parsePriceValue, readWorkbookPreview } from "./excel-import";
+import { buildRawProductRows, parseMultiPrice, parsePriceValue, readWorkbookPreview } from "./excel-import";
 
 describe("parsePriceValue", () => {
   test("parses common RMB/USD formatted prices and leaves blanks as null", () => {
@@ -24,6 +24,29 @@ describe("parsePriceValue", () => {
     expect(parsePriceValue("26.5")).toBe("26.5");
     expect(parsePriceValue("$3.50")).toBe("3.50");
     expect(parsePriceValue("含税价 18.32")).toBe("18.32");
+  });
+});
+
+describe("parseMultiPrice", () => {
+  test("parses multi-price variant cells with two or more variant-price pairs", () => {
+    expect(parseMultiPrice("3CCT:9 12CCT:10.5")).toEqual([
+      { variant: "3CCT", price: "9" },
+      { variant: "12CCT", price: "10.5" },
+    ]);
+    expect(parseMultiPrice("3CCT:9; 12CCT:10.5, RGBCCT:15")).toEqual([
+      { variant: "3CCT", price: "9" },
+      { variant: "12CCT", price: "10.5" },
+      { variant: "RGBCCT", price: "15" },
+    ]);
+  });
+
+  test("returns null for single-price, blank, and non-price cells", () => {
+    expect(parseMultiPrice("3CCT:9")).toBeNull();
+    expect(parseMultiPrice("¥9.5")).toBeNull();
+    expect(parseMultiPrice("")).toBeNull();
+    expect(parseMultiPrice(null)).toBeNull();
+    expect(parseMultiPrice("/")).toBeNull();
+    expect(parseMultiPrice("待报价")).toBeNull();
   });
 });
 

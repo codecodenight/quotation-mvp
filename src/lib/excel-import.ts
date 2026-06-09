@@ -29,6 +29,11 @@ export type ImportMapping = {
   descriptionColumn?: number | null;
 };
 
+export type MultiPriceEntry = {
+  variant: string;
+  price: string;
+};
+
 export type RawProductImportRow = {
   sourceFileId: string;
   factoryName: string | null;
@@ -199,6 +204,40 @@ export function parsePriceValue(value: unknown): string | null {
   }
 
   return match[0];
+}
+
+export function parseMultiPrice(value: unknown): MultiPriceEntry[] | null {
+  const normalized = cleanCell(value).trim();
+  if (!normalized || normalized === "/" || normalized === "-") {
+    return null;
+  }
+
+  const pairPattern = /([\p{L}\p{N}_+\-]+)\s*[:：]\s*(-?\d+(?:\.\d+)?)/gu;
+  const entries: MultiPriceEntry[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = pairPattern.exec(normalized)) !== null) {
+    const numeric = Number(match[2]);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return null;
+    }
+
+    entries.push({
+      variant: match[1],
+      price: match[2],
+    });
+  }
+
+  if (entries.length < 2) {
+    return null;
+  }
+
+  const remainingText = normalized.replace(pairPattern, "").trim();
+  if (remainingText && !/^[\s,，;；]+$/.test(remainingText)) {
+    return null;
+  }
+
+  return entries;
 }
 
 export function columnLabel(index: number): string {
