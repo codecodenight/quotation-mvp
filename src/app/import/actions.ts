@@ -8,6 +8,7 @@ import { extractImagesFromExcel, storeExtractedImage, type ExtractedImage } from
 import { buildRawProductRows, type IdentifierTarget, readSheetRows } from "@/lib/excel-import";
 import { resolveStoredFilePath } from "@/lib/file-paths";
 import { prisma } from "@/lib/prisma";
+import { upsertSupplierOffer } from "@/lib/supplier-offer-upsert";
 
 export async function importRawProducts(formData: FormData) {
   let fileId: string;
@@ -179,21 +180,18 @@ export async function importHejiaProducts(formData: FormData) {
             throw new Error(`产品 ${offerInput.modelNo} 未创建，不能写入 supplier_offer。`);
           }
 
-          await tx.supplierOffer.create({
-            data: {
-              productId,
-              factoryName: offerInput.factoryName,
-              purchasePrice: offerInput.purchasePrice,
-              currency: offerInput.currency,
-              moq: offerInput.moq,
-              ctnQty: offerInput.ctnQty,
-              ctnLength: offerInput.ctnLength,
-              ctnWidth: offerInput.ctnWidth,
-              ctnHeight: offerInput.ctnHeight,
-              leadTime: null,
-              sourceFileId: offerInput.sourceFileId,
-              remark: offerInput.remark,
-            },
+          await upsertSupplierOffer(tx, {
+            productId,
+            factoryName: offerInput.factoryName,
+            purchasePrice: offerInput.purchasePrice,
+            currency: offerInput.currency,
+            moq: offerInput.moq,
+            ctnQty: offerInput.ctnQty,
+            ctnLength: offerInput.ctnLength,
+            ctnWidth: offerInput.ctnWidth,
+            ctnHeight: offerInput.ctnHeight,
+            sourceFileId: offerInput.sourceFileId,
+            remark: offerInput.remark,
           });
         }
       });

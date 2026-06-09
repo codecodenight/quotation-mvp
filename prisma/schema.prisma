@@ -22,6 +22,8 @@ model File {
 
   rawProducts    RawProduct[]
   supplierOffers SupplierOffer[]
+  oldPriceHistories PriceHistory[] @relation("PriceHistoryOldSourceFile")
+  newPriceHistories PriceHistory[] @relation("PriceHistoryNewSourceFile")
 
   @@unique([volumeName, relativePath])
   @@index([fileType])
@@ -96,10 +98,28 @@ model SupplierOffer {
   product    Product @relation(fields: [productId], references: [id], onDelete: Restrict)
   sourceFile File?   @relation(fields: [sourceFileId], references: [id], onDelete: SetNull)
   quoteItems QuoteItem[]
+  priceHistory PriceHistory[]
 
   @@index([productId])
   @@index([factoryName])
   @@map("supplier_offers")
+}
+
+model PriceHistory {
+  id               String   @id @default(uuid())
+  supplierOfferId  String   @map("supplier_offer_id")
+  oldPrice         Decimal  @map("old_price")
+  newPrice         Decimal  @map("new_price")
+  oldSourceFileId  String?  @map("old_source_file_id")
+  newSourceFileId  String?  @map("new_source_file_id")
+  changedAt        DateTime @default(now()) @map("changed_at")
+
+  supplierOffer SupplierOffer @relation(fields: [supplierOfferId], references: [id], onDelete: Cascade)
+  oldSourceFile File?         @relation("PriceHistoryOldSourceFile", fields: [oldSourceFileId], references: [id], onDelete: SetNull)
+  newSourceFile File?         @relation("PriceHistoryNewSourceFile", fields: [newSourceFileId], references: [id], onDelete: SetNull)
+
+  @@index([supplierOfferId])
+  @@map("price_history")
 }
 
 model Quote {
