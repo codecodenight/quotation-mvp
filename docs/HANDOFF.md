@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
-Last updated: 2026-06-09
-Source: Claude web chat session covering V1.3 → V2.12
+Last updated: 2026-06-10
+Source: Claude web chat session covering V1.3 → V2.16
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.12)
+## Current State (after V2.16)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -24,10 +24,10 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Image backfill round 2 (V2.12): rowRadius 1→3 + generated model component matching; 1,087→1,119 products with images
 
 ### Data
-- Products: 2,132 across 26 categories
-- Supplier offers: 2,223 (V2.9 cleaned 203 duplicate 2-offer groups)
+- Products: 2,140 across 26 categories (V2.16 removed 4 mistaken header-row products)
+- Supplier offers: 2,230
 - Imported from: ~116 files
-- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,426 offers
+- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,230 offers
 - Price timestamps: 69% (1,674 offers with price_updated_at)
 - Product images: 1,119 products have images (52% coverage, backfill from 84 source files, two rounds)
 
@@ -123,18 +123,27 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 | V2.10 | Price version tracking | Import upsert (product_id + factory_name) + price_history table; re-import updates price instead of creating duplicate; CTN/MOQ supplement without overwrite; quotes-client UX polish (scroll-to-history after export) |
 | V2.11 | Multi-price parser | `parseMultiPrice()` splits `3CCT:9 12CCT:10.5` into variant products/offers; +12 products from #26 中千 |
 | V2.12 | Image backfill round 2 | rowRadius 1→3 + generated model component matching; +32 products with images (1,087→1,119, 52% coverage) |
+| V2.15 | 品类字段模板定义 | 26 品类结构化参数字段定义 + product_params 数据模型 + 提取安全规则。V3.0 核心输入。 |
+| V2.16 | 表头误导入产品清理 | 删除 4 个 Excel 表头行误导入产品 + 5 条 offers（2,144→2,140 / 2,235→2,230） |
 
 ---
 
-## What's Next (not started)
+## What's Next
 
-### Immediate Options (pick based on user feedback)
-1. **Dangling quote_items fix** — 2 条 quote_items 引用悬空 offer（V2.9 之前已存在）
-2. **V3.0 AI / 规则化参数提取** — 从非结构化文本自动提取产品参数
+### 已定路线（按优先级）
+1. **V2.13A — 源文件只读扫描**（任务文件已写好，等外接硬盘）— 9 个优先目录，四档分类（likely-importable / enrichment-only / needs-review / likely-skip）
+2. **V2.13B — 人工确认导入清单** — 根据 V2.13A 报告决定每个品类/工厂导哪个版本
+3. **V2.14 — 批量补导** — 补工厂 RMB 价 / CTN / 图片 / 规格 / price_history
+4. **V3.0A — DB-only 参数提取** — 先处理球泡/太阳能/灯带/净化灯/吸顶灯（~700 产品），只用现有 DB 字段，只提 high/medium confidence
+5. **V3.0B — source-aware 参数提取** — V2.14 补数据后，处理灯丝灯/三防灯/轨道灯等低覆盖品类
+
+### 关键发现（V2.15 extraction spike）
+- V3.0 不需要等硬盘：球泡/太阳能/灯带/净化灯/吸顶灯从现有 DB 字段就能提取大部分参数
+- 灯丝灯是最大品类(471)但 watts/base 只有 37% 可提取，必须等 V2.14 补源数据
+- 太阳能的 product_name 就是完整规格书，提取效果最好
 
 ### Not Now
-- PDF parsing (V3.0, high effort, uncertain value)
-- AI text extraction from descriptions (not needed while structured import works)
+- PDF parsing (high effort, uncertain value)
 - Multi-user auth (single user tool)
 - Customer entity management (V3.1)
 

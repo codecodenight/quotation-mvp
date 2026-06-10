@@ -166,11 +166,13 @@ Phase 1 and Phase 2 may be done together.
 | V2.10 | 价格版本追踪（import upsert + price_history） | ✓ |
 | V2.11 | Multi-price parser（多价格单元格拆分导入） | ✓ |
 | V2.12 | Image backfill round 2（扩大锚点搜索 + 组件匹配） | ✓ |
+| V2.15 | 品类字段模板定义（V3.0 前置规范） | ✓ |
+| V2.16 | 表头误导入产品清理（4 products + 5 offers） | ✓ |
 
 ### Current Data
 
-- Products: 2,144 across 26 categories
-- Supplier offers: 2,235
+- Products: 2,140 across 26 categories
+- Supplier offers: 2,230
 - Product images: 1,119 (52% coverage)
 - Imported from 116+ quotation / 核价 files
 - CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,223 offers
@@ -532,7 +534,7 @@ These may be built as future enhancements on top of the MVP data layer.
 
 None. Pending next task assignment.
 
-## Known Data Quality Issues (post V2.12)
+## Known Data Quality Issues (post V2.16)
 
 1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
-2. 1,025 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行）
+2. 1,021 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行）
