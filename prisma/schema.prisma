@@ -71,10 +71,31 @@ model Product {
 
   supplierOffers SupplierOffer[]
   quoteItems     QuoteItem[]
+  params         ProductParam[]
 
   @@index([productName])
   @@index([modelNo])
   @@map("products")
+}
+
+model ProductParam {
+  id              String   @id @default(uuid())
+  productId       String   @map("product_id")
+  paramKey        String   @map("param_key")
+  rawValue        String   @map("raw_value")
+  normalizedValue String?  @map("normalized_value")
+  unit            String?
+  sourceField     String   @map("source_field")
+  confidence      String   @default("medium")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([paramKey])
+  @@index([paramKey, normalizedValue])
+  @@map("product_params")
 }
 
 model SupplierOffer {
