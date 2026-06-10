@@ -532,9 +532,7 @@ These may be built as future enhancements on top of the MVP data layer.
 
 None. Pending next task assignment.
 
-## Known Data Quality Issues (post V2.9)
+## Known Data Quality Issues (post V2.12)
 
 1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
-2. 2 条 quote_items 的 supplier_offer_id 悬空（引用的 offer 在 V2.9 之前已不存在，非 V2.9 造成）
-3. #26 中千庭院灯有部分 `3CCT:... 12CCT:...` 多价格行未导入（需多价格解析器）
-4. 1,045 个产品无图（主要是 V2.8 生成款号产品和 anchor row 偏移 > ±1 的文件）
+2. 1,025 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行）
