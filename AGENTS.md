@@ -168,14 +168,16 @@ Phase 1 and Phase 2 may be done together.
 | V2.12 | Image backfill round 2（扩大锚点搜索 + 组件匹配） | ✓ |
 | V2.15 | 品类字段模板定义（V3.0 前置规范） | ✓ |
 | V2.16 | 表头误导入产品清理（4 products + 5 offers） | ✓ |
+| V3.0A | DB-only 参数提取（球泡/太阳能/灯带/净化灯/吸顶灯） | ✓ |
 
 ### Current Data
 
 - Products: 2,140 across 26 categories
 - Supplier offers: 2,230
+- Product params: 2,755 (覆盖 472 产品，high 1,237 + medium 1,518)
 - Product images: 1,119 (52% coverage)
 - Imported from 116+ quotation / 核价 files
-- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,223 offers
+- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,230 offers
 - Price timestamp coverage: 69% (1,674 offers with price_updated_at)
 - Price history: 0 records (table ready, awaiting re-imports with price changes)
 
