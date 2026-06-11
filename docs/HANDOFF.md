@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
-Last updated: 2026-06-10
-Source: Claude web chat session covering V1.3 → V2.16
+Last updated: 2026-06-11
+Source: Claude web chat + Claude Code sessions covering V1.3 → V3.0A
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.16)
+## Current State (after V3.0A + drive reorganization)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -22,19 +22,41 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Price version tracking (V2.10): import upsert by `product_id + factory_name` — update price + write `price_history` instead of creating duplicate offers
 - Multi-price parser (V2.11): cells like `3CCT:9 12CCT:10.5` split into separate variant products/offers with suffix
 - Image backfill round 2 (V2.12): rowRadius 1→3 + generated model component matching; 1,087→1,119 products with images
+- Structured parameter extraction (V3.0A): `product_params` key-value table with raw_value, normalized_value, unit, source_field, confidence
 
-### Data
-- Products: 2,140 across 26 categories (V2.16 removed 4 mistaken header-row products)
-- Supplier offers: 2,230
-- Imported from: ~116 files
-- CTN coverage: ctn_qty 999 / L×W×H 597 out of 2,230 offers
-- Price timestamps: 69% (1,674 offers with price_updated_at)
-- Product images: 1,119 products have images (52% coverage, backfill from 84 source files, two rounds)
+### Data (after V2.14 Batch 1)
+- Products: 5,010 across 26 categories (+2,870 from Batch 1)
+- Supplier offers: 5,323 (+3,093 new, 4,426 price updates via upsert)
+- Files (My Passport): 782 (477 existing + 305 newly registered)
+- Price history: 4,426 records (all from V2.14 upsert price changes)
+- Product images: 3,231 products have images (64% coverage, +2,113 from Batch 1)
+- Product params: 2,755 (5 categories: 球泡/太阳能/灯带/净化灯/吸顶灯, unchanged)
+- Batch 1 categories growth: 投光灯 16→444, 面板灯 69→886, 线条灯 38→1,119, 路灯 15→197, 灯带 21→383
 
-### Data Sources on Disk
-- `/Volumes/My Passport/AI 报价/发客户报价单汇总` — customer quotation summaries by category (98 Excel files)
-- `/Volumes/My Passport/AI 报价/各家工厂最新报价汇总` — factory quotations by factory (1,613 Excel files)
-- ~1,000 PDF files (not parseable by current system)
+### Data Sources on Disk (reorganized 2026-06-11)
+User reorganized the external hard drive from a flat structure (~60 top-level dirs) to a hierarchical structure:
+```
+各家工厂最新报价汇总/
+├── 室内照明/     (15 subcategories, 596 Excel files)
+├── 光源/         (5 subcategories, 65 Excel files)
+├── 灯带/         (11 subcategories, 51 Excel files)
+└── 户外照明 工业照明/ (8 subcategories, 503 Excel files)
+```
+- Total: 1,215 Excel files + 617 PDFs across 38 level-2 category directories
+- `发客户报价单汇总/` — customer quotes (FOB USD), NOT a price import source
+- `户外工厂/` is a mixed-category directory (283 Excel files spanning 庭院灯/投光灯/路灯/Highbay/太阳能)
+
+### V2.13A Source Inventory (commit 3af3681)
+Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
+- **likely-importable: 683** — has RMB price + model column, not yet imported
+- **enrichment-only: 328** — no RMB price but has specs/params/images
+- **needs-review: 113** — ambiguous price semantics or structure
+- **likely-skip: 91** — already imported / empty / template / catalog
+- Read failures: 7
+- New categories found on disk: 风扇灯(29), 工作灯(31), G4G9(7), 铝型材(6), T5(2), 支架(2), LED模组(2)
+- Full report: `docs/v2.13a-source-inventory.md` (3,059 lines)
+- Import candidates CSV: `docs/v2.13a-import-candidates.csv`
+- Reusable scan script: `scripts/source-inventory.ts`
 
 ---
 
@@ -100,6 +122,13 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Old parser extracted first number (15000), new parser extracts first number after ¥ (282.5)
 - Cells without ¥/￥ keep original behavior
 
+### Drive reorganization: new directory structure is authoritative (2026-06-11)
+- Old flat DB paths are now invalid; 258 stale file records cleaned
+- 9 stale files had 201 linked offers → source_file_id set to NULL (offers/products preserved)
+- 3 ambiguous generic-name files (`图片1.png`, `02.jpg`, etc.) left untouched
+- All remaining 477 file records have valid paths on current drive structure
+- Cleanup report: `docs/stale-files-cleanup-report.md`
+
 ---
 
 ## Version History (this session)
@@ -126,22 +155,34 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 | V2.15 | 品类字段模板定义 | 26 品类结构化参数字段定义 + product_params 数据模型 + 提取安全规则。V3.0 核心输入。 |
 | V2.16 | 表头误导入产品清理 | 删除 4 个 Excel 表头行误导入产品 + 5 条 offers（2,144→2,140 / 2,235→2,230） |
 | V3.0A | DB-only 参数提取 | 从现有 DB 字段提取结构化参数到 `product_params` 表；5 品类（球泡/太阳能/灯带/净化灯/吸顶灯）472 产品 → 2,755 条参数（high 1,237 + medium 1,518） |
+| — | 硬盘重组 + stale files 清理 | 用户重新整理硬盘目录：扁平→四大类三级结构。清理 258 条旧路径 file 记录，201 条 offers source_file_id 置空，477 条有效 |
+| V2.13A | 源文件全量盘点 | 1,215 个 Excel 四档分类：683 likely-importable / 328 enrichment-only / 113 needs-review / 91 likely-skip。发现 7 个全新品类 |
+| V2.13B | 导入计划审阅 | 683 候选按品类-工厂分组审阅；Batch 1 选定 5 品类 309 文件；新品类决策（风扇灯/工作灯/G4G9 建、铝型材/灯带连接器 不建）；市电壁灯→壁灯、LED橱柜灯→橱柜灯 |
+| V2.14 B1 | 批量导入 Batch 1 | 309 文件（305 成功）自动检测导入；+2,870 产品 +3,093 offers +2,113 图片 +4,426 价格历史；投光灯/面板灯/线条灯/路灯/灯带 5 品类 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.13A — 源文件只读扫描**（任务文件已写好，等外接硬盘）— 9 个优先目录，四档分类（likely-importable / enrichment-only / needs-review / likely-skip）
-2. **V2.13B — 人工确认导入清单** — 根据 V2.13A 报告决定每个品类/工厂导哪个版本
-3. **V2.14 — 批量补导** — 补工厂 RMB 价 / CTN / 图片 / 规格 / price_history
-4. **V3.0A — DB-only 参数提取** — 先处理球泡/太阳能/灯带/净化灯/吸顶灯（~700 产品），只用现有 DB 字段，只提 high/medium confidence
-5. **V3.0B — source-aware 参数提取** — V2.14 补数据后，处理灯丝灯/三防灯/轨道灯等低覆盖品类
+1. **V2.14 Batch 2** — 吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯等现有品类补导（~230 文件）
+2. **V2.14 Batch 3** — 全新品类（风扇灯/工作灯/G4G9）+ 低优先级品类（~144 文件）
+3. **V3.0B — source-aware 参数提取** — 用 Batch 1/2 补充的源数据提取灯丝灯/三防灯/轨道灯等低覆盖品类参数
+4. **灯管/球泡拆品类** — 合力目录下文件需按内容拆到球泡或灯管再导入
+5. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
 
-### 关键发现（V2.15 extraction spike）
-- V3.0 不需要等硬盘：球泡/太阳能/灯带/净化灯/吸顶灯从现有 DB 字段就能提取大部分参数
-- 灯丝灯是最大品类(471)但 watts/base 只有 37% 可提取，必须等 V2.14 补源数据
-- 太阳能的 product_name 就是完整规格书，提取效果最好
+### 已完成
+- ~~Stale files cleanup~~ ✅ commit d274faa
+- ~~V2.13A — 源文件只读扫描~~ ✅ commit 3af3681
+- ~~V2.13B — 导入计划审阅~~ ✅ `docs/v2.13b-import-plan.md`
+- ~~V2.14 Batch 1~~ ✅ commit cc288a2 — 5 品类 305/309 文件成功导入，+2,870 产品 +3,093 offers +2,113 图片
+- ~~V3.0A — DB-only 参数提取~~ ✅ commit bd188ab — 5 品类 472 产品 → 2,755 条参数
+
+### 关键发现
+- V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
+- 新品类决策已定：风扇灯/工作灯/G4G9 新建（Batch 3）；铝型材/灯带连接器 不进产品库；支架归入线条灯
+- 品类名映射已定：市电壁灯→壁灯，LED橱柜灯→橱柜灯
+- 灯丝灯仍是最大品类(471)但 watts/base 只有 37% 可从 DB 字段提取，需 V3.0B
 
 ### Not Now
 - PDF parsing (high effort, uncertain value)
