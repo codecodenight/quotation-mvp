@@ -1,19 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const TARGET_CATEGORIES = ["球泡", "太阳能", "灯带", "净化灯", "吸顶灯"] as const;
+const TARGET_CATEGORIES = ["投光灯", "面板灯", "线条灯", "路灯", "灯带"] as const;
 const mode = process.argv.includes("--apply") ? "apply" : "dry-run";
-const reportPath = readArg("--report") ?? "docs/v3.0a-dry-run-report.md";
+const reportPath = readArg("--report") ?? "docs/v3.0b-dry-run-report.md";
 
-type TargetCategory = (typeof TARGET_CATEGORIES)[number];
-type SourceField = "model_no" | "product_name" | "remark" | "size" | "material" | "offer_remark";
+export type TargetCategory = (typeof TARGET_CATEGORIES)[number];
+export type SourceField = "model_no" | "product_name" | "remark" | "size" | "material" | "offer_remark";
 type Confidence = "high" | "medium" | "low";
 
-type ProductForExtraction = {
+export type ProductForExtraction = {
   id: string;
   productName: string;
   category: string | null;
@@ -24,7 +25,7 @@ type ProductForExtraction = {
   supplierOffers: Array<{ remark: string | null; createdAt: Date }>;
 };
 
-type ExtractedParam = {
+export type ExtractedParam = {
   paramKey: string;
   rawValue: string;
   normalizedValue: string | null;
@@ -174,30 +175,135 @@ function extractAll(products: ProductForExtraction[]): ExtractedParamWithProduct
 
 function extractProductParams(product: ProductForExtraction, category: TargetCategory): ExtractedParam[] {
   const params: ExtractedParam[] = [];
-  params.push(...extractCommonSizeParams(product.size, category));
+  params.push(...extractCommonSizeParams(product.size));
 
   switch (category) {
-    case "球泡":
-      params.push(...extractBulbParams(product));
+    case "投光灯":
+      params.push(...extractFloodlightParams(product));
       break;
-    case "太阳能":
-      params.push(...extractSolarParams(product));
+    case "面板灯":
+      params.push(...extractPanelParams(product));
+      break;
+    case "线条灯":
+      params.push(...extractLinearParams(product));
+      break;
+    case "路灯":
+      params.push(...extractStreetLightParams(product));
       break;
     case "灯带":
       params.push(...extractStripParams(product));
-      break;
-    case "净化灯":
-      params.push(...extractCleanRoomParams(product));
-      break;
-    case "吸顶灯":
-      params.push(...extractCeilingParams(product));
       break;
   }
 
   return params.filter((param) => param.rawValue.trim().length > 0);
 }
 
-function extractBulbParams(product: ProductForExtraction): ExtractedParam[] {
+export function extractProductParamsForTest(product: ProductForExtraction, category: TargetCategory): ExtractedParam[] {
+  return dedupeParams(extractProductParams(product, category));
+}
+
+function extractFloodlightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const remark = readSource(product, "remark");
+  const material = readSource(product, "material");
+  const joined = `${remark} ${modelNo}`;
+
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractIp(joined, remark ? "remark" : "model_no"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractCct(remark, "remark"));
+  params.push(...extractPf(remark, "remark"));
+  params.push(...extractLmW(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  if (material) {
+    params.push(param("material", material, normalizeMaterial(material), null, "material", "medium"));
+  }
+
+  return params;
+}
+
+function extractPanelParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const remark = readSource(product, "remark");
+  const size = readSource(product, "size");
+  const joined = `${modelNo} ${remark} ${size}`;
+
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(remark, "remark"));
+  const panelSize = extractPanelSize(size);
+  if (panelSize) {
+    params.push(param("panel_size", size, panelSize.normalized, "mm", "size", "high"));
+    params.push(param("shape", panelSize.rawShape, panelSize.shape, null, "size", "medium"));
+  }
+  const mountType = extractMountType(joined);
+  if (mountType) {
+    params.push(param("mount_type", mountType.raw, mountType.normalized, null, mountType.sourceField, "medium"));
+  }
+  const backlit = extractBacklit(joined);
+  if (backlit) {
+    params.push(param("backlit", backlit.raw, backlit.normalized, null, backlit.sourceField, "medium"));
+  }
+
+  return params;
+}
+
+function extractLinearParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const remark = readSource(product, "remark");
+  const size = readSource(product, "size");
+  const material = readSource(product, "material");
+  const joined = `${modelNo} ${remark} ${size}`;
+
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractIp(joined, joined.includes("IP") ? "model_no" : "remark"));
+  if (!extractCommonSizeParams(size).some((item) => item.paramKey === "length_mm")) {
+    const length = extractLinearLengthFromText(modelNo);
+    if (length) {
+      params.push(param("length_mm", length.raw, length.normalized, "mm", "model_no", "high"));
+    }
+  }
+  const extractedMaterial = extractMaterialKeyword(`${remark} ${material} ${modelNo}`);
+  if (extractedMaterial) {
+    params.push(param("material", extractedMaterial.raw, extractedMaterial.normalized, null, extractedMaterial.sourceField, "medium"));
+  }
+  const series = extractSeries(modelNo);
+  if (series) {
+    params.push(param("series", series, series.toUpperCase(), null, "model_no", "medium"));
+  }
+
+  return params;
+}
+
+function extractStreetLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const remark = readSource(product, "remark");
+  const material = readSource(product, "material");
+  const joined = `${remark} ${modelNo}`;
+
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractIp(joined, remark ? "remark" : "model_no"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  if (material) {
+    params.push(param("material", material, normalizeMaterial(material), null, "material", "medium"));
+  }
+  params.push(...extractCri(remark, "remark"));
+  params.push(...extractLmW(remark, "remark"));
+  params.push(...extractPf(remark, "remark"));
+
+  return params;
+}
+
+export function extractBulbParams(product: ProductForExtraction): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   for (const sourceField of ["model_no", "product_name", "remark"] as SourceField[]) {
     const value = readSource(product, sourceField);
@@ -228,7 +334,7 @@ function extractBulbParams(product: ProductForExtraction): ExtractedParam[] {
   return params;
 }
 
-function extractSolarParams(product: ProductForExtraction): ExtractedParam[] {
+export function extractSolarParams(product: ProductForExtraction): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   const productName = readSource(product, "product_name");
   const modelNo = readSource(product, "model_no");
@@ -340,13 +446,29 @@ function extractStripParams(product: ProductForExtraction): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   const modelNo = readSource(product, "model_no");
   const productName = readSource(product, "product_name");
-  const joined = `${productName} ${modelNo}`;
+  const remark = readSource(product, "remark");
+  const joined = `${productName} ${modelNo} ${remark}`;
 
-  pushFirstMatch(params, joined, /\b((?:SMD\s*)?(?:2835|5050|3528|5730)|COB)\b/i, {
+  pushFirstMatch(params, joined, /LED\s*Type\s*[：:]\s*([A-Z]*\d{3,4}|COB|SMD\s*\d{3,4})/i, {
     paramKey: "led_type",
-    sourceField: productName ? "product_name" : "model_no",
+    sourceField: remark ? "remark" : "product_name",
     confidence: "high",
-    normalize: (value) => cleanInline(value).replace(/\s+/g, "").toUpperCase(),
+    normalize: normalizeLedType,
+  });
+  if (!params.some((item) => item.paramKey === "led_type")) {
+    pushFirstMatch(params, joined, /\b((?:SMD\s*)?(?:2835|5050|3528|5730)|RGB5050|COB)\b/i, {
+      paramKey: "led_type",
+      sourceField: productName ? "product_name" : "model_no",
+      confidence: "high",
+      normalize: normalizeLedType,
+    });
+  }
+
+  pushFirstMatch(params, joined, /(\d+)\s*D\/M\b/i, {
+    paramKey: "leds_per_meter",
+    sourceField: remark ? "remark" : "product_name",
+    confidence: "high",
+    unit: "pcs/m",
   });
   pushFirstMatch(params, joined, /(\d+)P\b/i, {
     paramKey: "leds_per_meter",
@@ -366,30 +488,39 @@ function extractStripParams(product: ProductForExtraction): ExtractedParam[] {
     }
   }
 
-  if (/220V/i.test(modelNo)) {
+  const adaptorVoltage = remark.match(/Adaptor\s*[：:]\s*(\d{1,3})\s*V/i);
+  if (adaptorVoltage) {
+    params.push(param("voltage", adaptorVoltage[0], `DC${adaptorVoltage[1]}V`, "V", "remark", "high"));
+  } else if (/220V/i.test(modelNo)) {
     params.push(param("voltage", "220V", "AC220V", "V", "model_no", "high"));
-  } else if (/12V/i.test(modelNo)) {
-    params.push(param("voltage", "12V", "DC12V", "V", "model_no", "high"));
-  } else if (/24V/i.test(modelNo)) {
-    params.push(param("voltage", "24V", "DC24V", "V", "model_no", "high"));
+  } else if (/12V/i.test(joined)) {
+    params.push(param("voltage", "12V", "DC12V", "V", joined.includes("12V") && remark.includes("12V") ? "remark" : "model_no", "high"));
+  } else if (/24V/i.test(joined)) {
+    params.push(param("voltage", "24V", "DC24V", "V", joined.includes("24V") && remark.includes("24V") ? "remark" : "model_no", "high"));
   }
 
-  pushFirstMatch(params, modelNo, /\b(RGB|NW|WW|CW)\b/i, {
+  params.push(...extractIp(joined, remark ? "remark" : "model_no"));
+
+  pushFirstMatch(params, joined, /\b(RGB|NW|WW|CW)\b/i, {
     paramKey: "color",
-    sourceField: "model_no",
+    sourceField: remark ? "remark" : "model_no",
     confidence: "high",
     normalize: (value) => value.toUpperCase(),
   });
 
+  const productSizeWidth = extractStripWidthFromProductSize(remark);
+  if (productSizeWidth) {
+    params.push(param("width_mm", productSizeWidth.raw, productSizeWidth.normalized, "mm", "remark", "medium"));
+  }
   const firstSize = firstNumber(readSource(product, "size"));
-  if (firstSize !== null) {
+  if (firstSize !== null && !params.some((item) => item.paramKey === "width_mm")) {
     params.push(param("width_mm", readSource(product, "size"), formatNumber(firstSize), "mm", "size", "medium"));
   }
 
   return params;
 }
 
-function extractCleanRoomParams(product: ProductForExtraction): ExtractedParam[] {
+export function extractCleanRoomParams(product: ProductForExtraction): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   const productName = readSource(product, "product_name");
 
@@ -432,7 +563,7 @@ function extractCleanRoomParams(product: ProductForExtraction): ExtractedParam[]
   return params;
 }
 
-function extractCeilingParams(product: ProductForExtraction): ExtractedParam[] {
+export function extractCeilingParams(product: ProductForExtraction): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   const modelNo = readSource(product, "model_no");
 
@@ -447,9 +578,12 @@ function extractCeilingParams(product: ProductForExtraction): ExtractedParam[] {
   return params;
 }
 
-function extractCommonSizeParams(size: string | null, category: TargetCategory): ExtractedParam[] {
+function extractCommonSizeParams(size: string | null): ExtractedParam[] {
   const raw = cleanInline(size ?? "");
   if (!raw) {
+    return [];
+  }
+  if (isPriceLikeSize(raw)) {
     return [];
   }
 
@@ -473,7 +607,7 @@ function extractCommonSizeParams(size: string | null, category: TargetCategory):
   }
 
   const hasDiameter = /[φΦøØ]|dia/i.test(raw);
-  if (hasDiameter || ((category === "吸顶灯" || category === "球泡") && numbers.length <= 2)) {
+  if (hasDiameter) {
     params.push(param("diameter_mm", raw, formatNumber(numbers[0]), "mm", "size", "medium"));
     if (numbers[1] !== undefined) {
       params.push(param("height_mm", raw, formatNumber(numbers[1]), "mm", "size", "medium"));
@@ -507,7 +641,60 @@ function extractBases(value: string, sourceField: SourceField): ExtractedParam[]
 function extractWatts(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   for (const match of value.matchAll(/(\d+(?:\.\d+)?)\s*W(?![A-Za-z0-9])/gi)) {
+    const contextBefore = value.slice(Math.max(0, match.index - 24), match.index);
+    if (/最大功率|连接最大|可连接|总功率|total\s+power|max(?:imum)?\s+power/i.test(contextBefore)) {
+      continue;
+    }
     params.push(param("watts", match[0], trimLeadingZero(match[1]), "W", sourceField, "high"));
+  }
+  return params;
+}
+
+export function extractCct(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  for (const match of value.matchAll(/(\d{3,5})\s*[-/~]\s*(\d{3,5})\s*K\b/gi)) {
+    params.push(param("cct", match[0], `${match[1]}-${match[2]}`, "K", sourceField, "medium"));
+  }
+  for (const match of value.matchAll(/(?<![-/~]\s*)(\d{3,5})\s*K\b/gi)) {
+    const normalized = match[1];
+    if (params.some((item) => item.normalizedValue?.includes(normalized))) {
+      continue;
+    }
+    params.push(param("cct", match[0], normalized, "K", sourceField, "medium"));
+  }
+  return params;
+}
+
+export function extractPf(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  for (const match of value.matchAll(/\bPF\s*[:：]?\s*(?:PF)?\s*[>≥]?\s*([\d.]+)/gi)) {
+    params.push(param("pf", match[0], match[1], null, sourceField, "medium"));
+  }
+  return params;
+}
+
+export function extractLmW(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const labeledPatterns = [
+    /(?:LM\/W|Lumen|光效)\s*[:：]?\s*(\d+)\s*[-~]\s*(\d+)\s*(?:lm\/w|LM\/W)?/gi,
+    /(?:LM\/W|Lumen|光效)\s*[:：]?\s*(\d+)\s*(?:lm\/w|LM\/W)/gi,
+  ];
+  for (const match of value.matchAll(labeledPatterns[0])) {
+    params.push(param("luminous_efficacy", match[0], `${match[1]}-${match[2]}`, "lm/W", sourceField, "medium"));
+  }
+  for (const match of value.matchAll(labeledPatterns[1])) {
+    const normalized = match[1];
+    if (params.some((item) => item.normalizedValue?.includes(normalized))) {
+      continue;
+    }
+    params.push(param("luminous_efficacy", match[0], normalized, "lm/W", sourceField, "medium"));
+  }
+  for (const match of value.matchAll(/(\d+)\s*[-~]\s*(\d+)\s*(?:lm\/w|LM\/W)/gi)) {
+    const normalized = `${match[1]}-${match[2]}`;
+    if (params.some((item) => item.normalizedValue === normalized)) {
+      continue;
+    }
+    params.push(param("luminous_efficacy", match[0], normalized, "lm/W", sourceField, "medium"));
   }
   return params;
 }
@@ -527,7 +714,7 @@ function extractVoltage(value: string, sourceField: SourceField): ExtractedParam
 
 function extractCri(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
-  for (const match of value.matchAll(/(?:Ra|CRI)\s*[≥>]?\s*(\d+)/gi)) {
+  for (const match of value.matchAll(/(?:Ra|CRI)\s*[:：]?\s*[≥>]?\s*(\d+)/gi)) {
     params.push(param("cri", match[0], `Ra${match[1]}`, null, sourceField, "high"));
   }
   for (const match of value.matchAll(/[≥>]?\s*(\d+)\s*显指/g)) {
@@ -538,7 +725,13 @@ function extractCri(value: string, sourceField: SourceField): ExtractedParam[] {
 
 function extractBeamAngles(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
+  for (const match of value.matchAll(/Beam\s*Angle\s*[:：]?\s*(\d{2,3})\s*[×xX*]\s*(\d{2,3})\s*[°度]?/gi)) {
+    params.push(param("beam_angle", match[0], `${match[1]}×${match[2]}`, "°", sourceField, "high"));
+  }
   for (const match of value.matchAll(/(\d{2,3})\s*[°度]/g)) {
+    if (params.some((item) => item.rawValue.includes(match[0]))) {
+      continue;
+    }
     params.push(param("beam_angle", match[0], match[1], "°", sourceField, "high"));
   }
   return params;
@@ -549,7 +742,107 @@ function extractIp(value: string, sourceField: SourceField): ExtractedParam[] {
   for (const match of value.matchAll(/\bIP\s*(\d{2})\b/gi)) {
     params.push(param("ip", match[0], `IP${match[1]}`, null, sourceField, "high"));
   }
+  for (const match of value.matchAll(/\bIP\s*[:：]\s*(\d{2})\b/gi)) {
+    if (params.some((item) => item.normalizedValue === `IP${match[1]}`)) {
+      continue;
+    }
+    params.push(param("ip", match[0], `IP${match[1]}`, null, sourceField, "high"));
+  }
   return params;
+}
+
+function extractLabeledMaterial(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const match = value.match(/Material\s*[:：]\s*([^:：]+?)(?=\s+(?:Ra|CRI|PF|Power|Watt|Beam|Lumen|LM\/W|Voltage|CCT|IP)\b|$)/i);
+  if (match) {
+    params.push(param("material", match[1], normalizeMaterial(match[1]), null, sourceField, "medium"));
+  }
+  return params;
+}
+
+function extractPanelSize(size: string): { normalized: string; shape: string; rawShape: string } | null {
+  const raw = cleanInline(size);
+  if (!raw) return null;
+  const multiplier = detectSizeUnitMultiplier(raw);
+  const numbers = extractNumbers(raw).map((value) => value * multiplier);
+  if (numbers.length === 0) return null;
+  if (/[φΦøØ]|dia|圆|round/i.test(raw) || numbers.length === 1) {
+    return {
+      normalized: `Φ${formatNumber(numbers[0])}`,
+      shape: "圆",
+      rawShape: raw,
+    };
+  }
+  return {
+    normalized: numbers.slice(0, 2).map(formatNumber).join("×"),
+    shape: "方",
+    rawShape: raw,
+  };
+}
+
+function extractMountType(value: string): { raw: string; normalized: string; sourceField: SourceField } | null {
+  const text = cleanInline(value);
+  if (/嵌入|嵌装|recessed/i.test(text)) {
+    return { raw: "嵌入/recessed", normalized: "嵌入", sourceField: "remark" };
+  }
+  if (/明装|surface/i.test(text)) {
+    return { raw: "明装/surface", normalized: "明装", sourceField: "remark" };
+  }
+  if (/吊装|suspended|pendant/i.test(text)) {
+    return { raw: "吊装/suspended", normalized: "吊装", sourceField: "remark" };
+  }
+  return null;
+}
+
+function extractBacklit(value: string): { raw: string; normalized: string; sourceField: SourceField } | null {
+  const text = cleanInline(value);
+  if (/backlit|back[-\s]?lit|直下|背光/i.test(text)) {
+    return { raw: "backlit/直下", normalized: "backlit", sourceField: "remark" };
+  }
+  if (/edge[-\s]?lit|侧发光|侧光/i.test(text)) {
+    return { raw: "edge-lit/侧发光", normalized: "edge-lit", sourceField: "remark" };
+  }
+  return null;
+}
+
+function extractLinearLengthFromText(value: string): { raw: string; normalized: string } | null {
+  const match = cleanInline(value).match(/\b(300|450|600|900|1000|1200|1500|1800|2400)\b/);
+  return match ? { raw: match[0], normalized: match[1] } : null;
+}
+
+function extractMaterialKeyword(value: string): { raw: string; normalized: string; sourceField: SourceField } | null {
+  const text = cleanInline(value);
+  if (/aluminum|aluminium|铝/i.test(text)) {
+    return { raw: "aluminum/铝", normalized: "aluminum", sourceField: "remark" };
+  }
+  if (/\bPC\b|聚碳酸酯/i.test(text)) {
+    return { raw: "PC", normalized: "PC", sourceField: "remark" };
+  }
+  if (/ABS/i.test(text)) {
+    return { raw: "ABS", normalized: "ABS", sourceField: "remark" };
+  }
+  return null;
+}
+
+function extractSeries(modelNo: string): string | null {
+  const match = cleanInline(modelNo).match(/\b([A-Z]{2,5}-[A-Z0-9]{2,6})(?=-|\b)/i);
+  return match ? match[1] : null;
+}
+
+function extractStripWidthFromProductSize(value: string): { raw: string; normalized: string } | null {
+  const match = cleanInline(value).match(/Product\s*Size\s*[：:]\s*[^:：]*?[×xX*]\s*(\d+(?:\.\d+)?)\s*mm\b/i);
+  return match ? { raw: match[0], normalized: formatNumber(Number(match[1])) } : null;
+}
+
+function normalizeLedType(value: string): string {
+  return cleanInline(value).replace(/\s+/g, "").toUpperCase();
+}
+
+function normalizeMaterial(value: string): string {
+  return cleanInline(value)
+    .replace(/Die[-\s]?cast\s+Aluminum/i, "die-cast aluminum")
+    .replace(/Aluminium/gi, "Aluminum")
+    .trim();
 }
 
 function pushFirstMatch(
@@ -742,7 +1035,7 @@ function buildMarkdownReport(input: {
   const low = input.extracted.filter((param) => param.confidence === "low");
   const lines: string[] = [];
 
-  lines.push("# V3.0A DB Parameter Extraction Dry Run Report");
+  lines.push("# V3.0B DB Parameter Extraction Report");
   lines.push("");
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push("");
@@ -767,8 +1060,10 @@ function buildMarkdownReport(input: {
   lines.push(`| product_params after | ${input.productParamCountAfter} |`);
   lines.push(`| Inserted params | ${input.insertedParams} |`);
   lines.push(`| Cleared products | ${input.clearedProducts} |`);
-  lines.push("");
-  lines.push("Dry-run expectation: `product_params after` should equal `before`, and `inserted params` should be 0.");
+  if (mode === "dry-run") {
+    lines.push("");
+    lines.push("Dry-run expectation: `product_params after` should equal `before`, and `inserted params` should be 0.");
+  }
   lines.push("");
 
   for (const stats of input.stats) {
@@ -906,8 +1201,15 @@ function extractNumbers(value: string): number[] {
 }
 
 function firstNumber(value: string): number | null {
+  if (isPriceLikeSize(value)) {
+    return null;
+  }
   const match = value.match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) * detectSizeUnitMultiplier(value) : null;
+}
+
+function isPriceLikeSize(value: string): boolean {
+  return /[¥￥$]|(?:RMB|CNY|USD)\b|单价|价格|报价|含税|不含税/i.test(cleanInline(value));
 }
 
 function buildSizeDisplay(dimensions: Array<[string, number]>): string {
@@ -975,11 +1277,13 @@ function readArg(name: string): string | null {
   return process.argv[index + 1] ?? null;
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
