@@ -13,19 +13,47 @@ const prisma = new PrismaClient();
 
 const ROOT = "/Volumes/My Passport/AI 报价/各家工厂最新报价汇总";
 const CSV_PATH = "docs/v2.13a-import-candidates.csv";
-const REPORT_PATH = "docs/v2.14-batch1-report.md";
 const BACKUP_DIR = "backups";
-const EXPECTED_INPUT_FILES = 309;
 const PRICE_MIN = 0.01;
 const PRICE_MAX = 100_000;
 const IMAGE_ROW_RADIUS = 3;
-const SCAN_CATEGORIES = ["投光灯", "面板灯", "线条灯", "路灯", "灯带"] as const;
+const BATCH_CONFIGS = {
+  "1": {
+    label: "Batch 1",
+    reportPath: "docs/v2.14-batch1-report.md",
+    backupPrefix: "dev-before-v2.14-batch1",
+    expectedInputFiles: 309,
+    categories: ["投光灯", "面板灯", "线条灯", "路灯", "灯带"],
+  },
+  "2": {
+    label: "Batch 2",
+    reportPath: "docs/v2.14-batch2-report.md",
+    backupPrefix: "dev-before-v2.14-batch2",
+    expectedInputFiles: 210,
+    categories: ["吸顶灯", "筒灯", "三防灯", "磁吸灯", "净化灯", "镜前灯", "防潮灯"],
+  },
+} as const;
+
+const batchConfig = readBatchConfig();
+const REPORT_PATH = batchConfig.reportPath;
+const EXPECTED_INPUT_FILES = batchConfig.expectedInputFiles;
+const SCAN_CATEGORIES: string[] = [...batchConfig.categories];
 const SCAN_CATEGORY_SET = new Set<string>(SCAN_CATEGORIES);
 const SKIPPABLE_SHEET_NAME = /目录|index|cover|封面/i;
 
 const applyMode = process.argv.includes("--apply");
 const skipImages = process.argv.includes("--skip-images");
 const runStartedAt = new Date();
+
+function readBatchConfig() {
+  const batchArg = process.argv.find((arg) => arg.startsWith("--batch="));
+  const batch = batchArg?.split("=")[1] ?? (process.argv.includes("--batch2") ? "2" : "1");
+  const config = BATCH_CONFIGS[batch as keyof typeof BATCH_CONFIGS];
+  if (!config) {
+    throw new Error(`未知 V2.14 batch：${batch}。可用参数：--batch=1 或 --batch=2`);
+  }
+  return config;
+}
 
 type Candidate = {
   relativePath: string;
@@ -192,7 +220,7 @@ async function main() {
   const diskIndex = await buildDiskIndex(ROOT);
   const candidates = await loadCandidates(diskIndex);
   if (candidates.length !== EXPECTED_INPUT_FILES) {
-    throw new Error(`Batch 1 候选文件数量异常：期望 ${EXPECTED_INPUT_FILES}，实际 ${candidates.length}`);
+    throw new Error(`${batchConfig.label} 候选文件数量异常：期望 ${EXPECTED_INPUT_FILES}，实际 ${candidates.length}`);
   }
 
   const backupPath = applyMode ? await backupDatabase() : null;
@@ -219,6 +247,7 @@ async function main() {
     JSON.stringify(
       {
         mode: applyMode ? "apply" : "dry-run",
+        batchLabel: batchConfig.label,
         inputFiles: candidates.length,
         successFiles: results.filter((result) => result.success).length,
         skippedNoSheet: results.filter((result) => result.skippedNoSheet).length,
@@ -304,8 +333,7 @@ async function loadCandidates(diskIndex: Map<string, DiskFile>): Promise<Candida
     .filter((candidate): candidate is Candidate => Boolean(candidate));
 
   return candidates.sort((a, b) => {
-    const categoryDelta = SCAN_CATEGORIES.indexOf(a.category as (typeof SCAN_CATEGORIES)[number]) -
-      SCAN_CATEGORIES.indexOf(b.category as (typeof SCAN_CATEGORIES)[number]);
+    const categoryDelta = SCAN_CATEGORIES.indexOf(a.category) - SCAN_CATEGORIES.indexOf(b.category);
     if (categoryDelta !== 0) return categoryDelta;
     const factoryDelta = a.factory.localeCompare(b.factory, "zh-Hans-CN");
     if (factoryDelta !== 0) return factoryDelta;
@@ -949,7 +977,7 @@ async function backupDatabase(): Promise<string> {
     .replace(/[-:]/g, "")
     .replace(/\..+$/, "")
     .replace("T", "-");
-  const backupPath = path.join(BACKUP_DIR, `dev-before-v2.14-batch1-${stamp}.sqlite`);
+  const backupPath = path.join(BACKUP_DIR, `${batchConfig.backupPrefix}-${stamp}.sqlite`);
   await copyFile("prisma/dev.db", backupPath);
   return backupPath;
 }
@@ -1036,7 +1064,7 @@ function buildReport({
   const readFailedCount = results.filter((result) => result.readFailed).length;
 
   const lines: string[] = [
-    "# V2.14 Batch 1 — 批量导入报告",
+    `# V2.14 ${batchConfig.label} — 批量导入报告`,
     "",
     `Generated: ${new Date().toISOString()}`,
     `Mode: ${mode}`,
@@ -1125,11 +1153,11 @@ function buildVerificationSection(beforeCounts: DbCounts, afterCounts: DbCounts)
     ["products", beforeCounts.products, afterCounts.products],
     ["supplier_offers", beforeCounts.supplierOffers, afterCounts.supplierOffers],
     ["files (My Passport)", beforeCounts.filesMyPassport, afterCounts.filesMyPassport],
-    ["投光灯 products", beforeCounts.categories["投光灯"] ?? 0, afterCounts.categories["投光灯"] ?? 0],
-    ["面板灯 products", beforeCounts.categories["面板灯"] ?? 0, afterCounts.categories["面板灯"] ?? 0],
-    ["线条灯 products", beforeCounts.categories["线条灯"] ?? 0, afterCounts.categories["线条灯"] ?? 0],
-    ["路灯 products", beforeCounts.categories["路灯"] ?? 0, afterCounts.categories["路灯"] ?? 0],
-    ["灯带 products", beforeCounts.categories["灯带"] ?? 0, afterCounts.categories["灯带"] ?? 0],
+    ...SCAN_CATEGORIES.map((category): [string, number, number] => [
+      `${category} products`,
+      beforeCounts.categories[category] ?? 0,
+      afterCounts.categories[category] ?? 0,
+    ]),
     ["products with images", beforeCounts.productImages, afterCounts.productImages],
     ["price_history", beforeCounts.priceHistory, afterCounts.priceHistory],
     ["product_params", beforeCounts.productParams, afterCounts.productParams],
