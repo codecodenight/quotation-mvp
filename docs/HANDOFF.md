@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-11
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V3.0B + V2.14 Batch 2
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V3.0C
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.14 Batch 2 + V3.0B)
+## Current State (after V3.0C)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -22,15 +22,15 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Price version tracking (V2.10): import upsert by `product_id + factory_name` — update price + write `price_history` instead of creating duplicate offers
 - Multi-price parser (V2.11): cells like `3CCT:9 12CCT:10.5` split into separate variant products/offers with suffix
 - Image backfill round 2 (V2.12): rowRadius 1→3 + generated model component matching; 1,087→1,119 products with images
-- Structured parameter extraction (V3.0A): `product_params` key-value table with raw_value, normalized_value, unit, source_field, confidence
+- Structured parameter extraction (V3.0A-C): `product_params` key-value table with raw_value, normalized_value, unit, source_field, confidence
 
-### Data (after V2.14 Batch 2)
+### Data (after V3.0C)
 - Products: 9,279 across 26 categories (+4,269 from Batch 2)
 - Supplier offers: 9,913 (+4,590 new, 2,820 price updates via upsert from Batch 2)
 - Files (My Passport): 992 (782 before Batch 2 + 210 newly registered)
 - Price history: 7,246 records
 - Product images: 5,810 products have images (63% coverage, +2,579 from Batch 2)
-- Product params: 11,575 (9 categories; V3.0A 2,755 + V3.0B 8,820; Batch 2 params not extracted yet)
+- Product params: 26,758 (14 categories; V3.0C inserted 15,905 params for 2,773 Batch 2 products; 5,699 products with params total)
 - Batch 1 categories growth: 投光灯 16→444, 面板灯 69→886, 线条灯 38→1,119, 路灯 15→197, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
 
@@ -162,17 +162,18 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.14 B1 | 批量导入 Batch 1 | 309 文件（305 成功）自动检测导入；+2,870 产品 +3,093 offers +2,113 图片 +4,426 价格历史；投光灯/面板灯/线条灯/路灯/灯带 5 品类 |
 | V3.0B | Batch 1 参数提取 | 5 品类 3,029 产品 → 8,898 条参数（覆盖 2,602 产品 86%）；投光灯 95%/路灯 90%/灯带 90%/线条灯 87%/面板灯 77%；新增 extractCct/extractPf/extractLmW；product_params 2,755→11,575 |
 | V2.14 B2 | 批量导入 Batch 2 | 210 文件（210 成功）自动检测导入；+4,269 产品 +4,590 offers +2,579 图片 +2,820 价格历史；吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯 7 品类 |
+| V3.0C | Batch 2 参数提取 | 7 品类 4,809 产品 → 15,905 条参数（覆盖 2,773 产品）；筒灯 86% / 三防灯 89% / 防潮灯 93% / 净化灯 12%（源规格文本缺失）；product_params 11,575→26,758 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V3.0C — Batch 2 参数提取** — 吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯 7 品类，复用 V3.0B 通用提取函数
-2. **V2.14 Batch 3** — 全新品类（风扇灯/工作灯/G4G9）+ 低优先级品类（~144 文件）
-3. **V3.0D — Batch 3 参数提取** — 新品类和剩余低覆盖品类参数提取
-4. **灯管/球泡拆品类** — 合力目录下文件需按内容拆到球泡或灯管再导入
-5. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
+1. **V2.14 Batch 3** — 全新品类（风扇灯/工作灯/G4G9）+ 低优先级品类（~144 文件）
+2. **V3.0D — Batch 3 参数提取** — 新品类和剩余低覆盖品类参数提取
+3. **灯管/球泡拆品类** — 合力目录下文件需按内容拆到球泡或灯管再导入
+4. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
+5. **参数产品化** — 把 `product_params` 用到产品库筛选、报价 Product Details 生成和缺字段补录入口
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -182,12 +183,15 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V3.0A — DB-only 参数提取~~ ✅ commit bd188ab — 5 品类 472 产品 → 2,755 条参数
 - ~~V3.0B — Batch 1 参数提取~~ ✅ commit fd0b179 — 5 品类 3,029 产品 → 8,898 条参数，product_params 11,575
 - ~~V2.14 Batch 2~~ ✅ 210/210 文件成功导入，+4,269 产品 +4,590 offers +2,579 图片
+- ~~V3.0C — Batch 2 参数提取~~ ✅ 7 品类 4,809 产品 → 15,905 条参数，product_params 26,758
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
 - V2.14 Batch 2 自动检测成功率 100%（210/210），说明同一脚本适合继续跑 Batch 3
 - V3.0B 验证了 Batch 1 导入质量：remark 字段高度结构化（投光灯/路灯 Key:Value 格式），参数覆盖率 86%
+- V3.0C 覆盖 2,773/4,809（57.7%）目标产品；筒灯/三防灯/防潮灯覆盖较好，净化灯低覆盖主要因为大多数新增记录没有 remark/size
 - `extractCct`/`extractPf`/`extractLmW` 是可复用的通用函数，Batch 2 品类可直接用
+- 新增功率边界防护：`XY-KD80W` 这类型号片段不会被误当成 `80W`
 - 脏数据防护：`单组可连接最大功率` 不覆盖实际功率，已有测试
 - 新品类决策已定：风扇灯/工作灯/G4G9 新建（Batch 3）；铝型材/灯带连接器 不进产品库；支架归入线条灯
 - 品类名映射已定：市电壁灯→壁灯，LED橱柜灯→橱柜灯

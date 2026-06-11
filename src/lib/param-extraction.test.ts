@@ -154,3 +154,112 @@ describe("V3.0B parameter extraction", () => {
     );
   });
 });
+
+describe("V3.0C Batch 2 parameter extraction", () => {
+  test("extracts clean room light structured Chinese fields", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "净化灯",
+        modelNo: "高光效弧形H系列成本 - 75MM宽弧形H75款彩钢板净化灯双支灯条 - 1200*75*23 - 48W",
+        size: "1200*75*23",
+        remark:
+          "规格（mm): 1200*75*23\n灯珠型号: 2835\n灯珠数量: 156\n功率(W): 48W\n色温（K): 6500K\n功率 因素(PF): 0.5\n显值(Ra）: 70\n光效（LM/W): 75-80\n备注: 0.14厚彩钢板，PP堵头，PP奶白罩，恒流IC驱动，质保2年",
+      }),
+      "净化灯" as never,
+    );
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "48" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "6500" }),
+        expect.objectContaining({ paramKey: "pf", normalizedValue: "0.5" }),
+        expect.objectContaining({ paramKey: "cri", normalizedValue: "Ra70" }),
+        expect.objectContaining({ paramKey: "luminous_efficacy", normalizedValue: "75-80" }),
+        expect.objectContaining({ paramKey: "body_material", normalizedValue: "彩涂板" }),
+        expect.objectContaining({ paramKey: "led_bars", normalizedValue: "2" }),
+      ]),
+    );
+  });
+
+  test("extracts downlight cutout, watts, CCT and material", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "筒灯",
+        modelNo: "YB03-TPAR30-R",
+        size: "φ135*35mm",
+        remark: "整灯尺寸: φ135*35mm\n材质: 塑包铝\n开孔尺寸: 120mm\n电压: 110-240V\n光通量±10%: 1050LM\n功率±10%: 12W\n功率因数: 0.5\n色温: 2700K-6500K\n显指: 80",
+      }),
+      "筒灯" as never,
+    );
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "diameter_mm", normalizedValue: "135" }),
+        expect.objectContaining({ paramKey: "height_mm", normalizedValue: "35" }),
+        expect.objectContaining({ paramKey: "cutout_mm", normalizedValue: "120" }),
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "12" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "2700-6500" }),
+        expect.objectContaining({ paramKey: "lumens", normalizedValue: "1050" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "塑包铝" }),
+      ]),
+    );
+  });
+
+  test("does not extract watts embedded in alphanumeric series codes", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "筒灯",
+        modelNo: "10W COB",
+        remark: "基本参数: XY-KD80W",
+      }),
+      "筒灯" as never,
+    );
+    expect(params.find((param) => param.paramKey === "watts")).toMatchObject({
+      rawValue: "10W",
+      normalizedValue: "10",
+      sourceField: "model_no",
+    });
+  });
+
+  test("extracts magnetic light module, track system and optical fields", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "磁吸灯",
+        modelNo: "M05-ML-D80",
+        size: "D80",
+        remark: "规格/mm: D80\n功率: 5W\n电压: 24V\n显指: ≧90\n色温: 3000K/4000K/6000K\n质保: 3年\n材质: 铝+玻璃",
+      }),
+      "磁吸灯" as never,
+    );
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "track_system", normalizedValue: "M05" }),
+        expect.objectContaining({ paramKey: "module_type", normalizedValue: "linear" }),
+        expect.objectContaining({ paramKey: "diameter_mm", normalizedValue: "80" }),
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "5" }),
+        expect.objectContaining({ paramKey: "voltage", normalizedValue: "24V" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "3000" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "铝+玻璃" }),
+      ]),
+    );
+  });
+
+  test("extracts moisture-proof light IP, material, PF and dimensions", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "防潮灯",
+        modelNo: "MYF-1048L",
+        size: "275*275*86",
+        remark: "材质: 壳体压铸铝 PC罩，IP54\n产品尺寸（mm): 275*275*86\n外箱尺寸CM: 57.5*29.5*29.5",
+      }),
+      "防潮灯" as never,
+    );
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "length_mm", normalizedValue: "275" }),
+        expect.objectContaining({ paramKey: "width_mm", normalizedValue: "275" }),
+        expect.objectContaining({ paramKey: "height_mm", normalizedValue: "86" }),
+        expect.objectContaining({ paramKey: "ip", normalizedValue: "IP54" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "壳体压铸铝 PC罩，IP54" }),
+      ]),
+    );
+  });
+});
