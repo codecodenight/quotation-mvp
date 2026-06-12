@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-12
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0C / V3.0D
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0C / V3.0D / V2.14 Batch 3
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V3.0D)
+## Current State (after V2.14 Batch 3)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -27,15 +27,16 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Quotes + product library param enhancement (V4.0B): quotes page category/watts/IP/CCT filters + param tags in search results and selected items; product library CCT filter + `<details>` expandable full param table; shared `product-filters.ts` module eliminates duplication
 - Quote Product Details from params (V4.0C): `product-details-builder.ts` generates stable English spec lines (Power/CCT/IP/Size/Material/...) from `product_params`; ≥2 valid lines → use params, otherwise fallback to remark+size; size dedup when `size_display` exists; preview, export, and history detail all share the same path
 
-### Data (after V3.0D)
-- Products: 9,279 across 26 categories (+4,269 from Batch 2)
-- Supplier offers: 9,913 (+4,590 new, 2,820 price updates via upsert from Batch 2)
-- Files (My Passport): 992 (782 before Batch 2 + 210 newly registered)
-- Price history: 7,246 records
-- Product images: 5,810 products have images (63% coverage, +2,579 from Batch 2)
-- Product params: 31,923 (26 categories; V3.0D inserted 5,165 params for 1,083 products; 6,782 products with params total; high 10,572 + medium 21,351)
+### Data (after V2.14 Batch 3)
+- Products: 10,970 across 29 categories (+1,691 from Batch 3)
+- Supplier offers: 11,990 (+2,077 new, 952 price updates via upsert from Batch 3)
+- Files (My Passport): 1,097 (992 before Batch 3 + 105 newly registered)
+- Price history: 8,198 records
+- Product images: 7,377 products have images (67% coverage, +1,567 from Batch 3)
+- Product params: 31,923 (26 parameter categories; Batch 3 has not run V3.0E; 6,782 products with params total; high 10,572 + medium 21,351)
 - Batch 1 categories growth: 投光灯 16→444, 面板灯 69→886, 线条灯 38→1,119, 路灯 15→197, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
+- Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→85, G4G9 0→51, 太阳能壁灯 87→555, 壁灯 27→290, 橱柜灯 134→204, 线条灯 1,119→1,123
 
 ### Data Sources on Disk (reorganized 2026-06-11)
 User reorganized the external hard drive from a flat structure (~60 top-level dirs) to a hierarchical structure:
@@ -170,16 +171,16 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V4.0B | 报价中心参数筛选 + 产品库参数详情 | 报价中心品类/功率/IP/CCT 筛选 + 搜索结果&已选产品参数标签；产品库 CCT 筛选 + `<details>` 展开全参数表格（来源+置信度）；筛选逻辑提取到 `product-filters.ts` 共享模块 |
 | V4.0C | 报价 Product Details 参数化生成 | `product-details-builder.ts` 按固定顺序生成英文规格行；≥2 有效行启用参数化，否则 fallback remark+size；Size 去重；预览/导出/历史共用同一路径；`prepareQuoteItems` + `getQuoteDetail` 改 explicit select |
 | V3.0D | 剩余 12 品类参数提取 | 灯丝灯/轨道灯/橱柜灯/太阳能壁灯/庭院灯/应急灯/地埋灯/壁灯/台灯/灯管/Highbay/皮线灯 1,116 产品 → 5,165 条参数（覆盖 1,083 产品）；product_params 26,758→31,923；修正 `5m/50珠` 尺寸误提取和 `LUMEN: 1400LM` 光效误提取 |
+| V2.14 B3 | 批量导入 Batch 3 | 115 文件（105 成功，10 无可导入 sheet）；+1,691 产品 +2,077 offers +1,567 图片 +952 价格历史；新增风扇灯/工作灯/G4G9；LED橱柜灯→橱柜灯、市电壁灯→壁灯、支架→线条灯 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.14 Batch 3** — 全新品类（风扇灯/工作灯/G4G9）+ 低优先级品类（~144 文件）
-2. **V3.0E — Batch 3 参数提取**
-3. **灯管/球泡拆品类** — 合力目录下文件需按内容拆到球泡或灯管再导入
-4. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
+1. **V3.0E — Batch 3 参数提取**
+2. **灯管/球泡拆品类** — 合力目录下文件需按内容拆到球泡或灯管再导入
+3. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -194,10 +195,14 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V4.0B — 报价中心参数筛选 + 产品库参数详情~~ ✅ commit b7c5028 — 报价中心品类/功率/IP/CCT + 参数标签；产品库 CCT + 展开详情；共享 product-filters.ts
 - ~~V4.0C — 报价 Product Details 参数化~~ ✅ commit cf48d03 — 结构化英文规格行 + remark fallback + Size 去重
 - ~~V3.0D — 剩余 12 品类参数提取~~ ✅ 12 品类 1,116 产品 → 5,165 条参数，product_params 31,923，26 品类全部有参数
+- ~~V2.14 Batch 3~~ ✅ 115 文件（105 成功），+1,691 产品 +2,077 offers +1,567 图片；新增风扇灯/工作灯/G4G9
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
 - V2.14 Batch 2 自动检测成功率 100%（210/210），说明同一脚本适合继续跑 Batch 3
+- V2.14 Batch 3 自动检测成功率 91.3%（105/115），10 个文件无可导入 sheet，0 读取失败
+- V2.14 Batch 3 新建风扇灯/工作灯/G4G9 三个品类，品类映射按计划执行：LED橱柜灯→橱柜灯、市电壁灯→壁灯、支架→线条灯
+- V2.14 Batch 3 暂未跑参数提取，product_params 保持 31,923，下一步是 V3.0E
 - V3.0B 验证了 Batch 1 导入质量：remark 字段高度结构化（投光灯/路灯 Key:Value 格式），参数覆盖率 86%
 - V3.0C 覆盖 2,773/4,809（57.7%）目标产品；筒灯/三防灯/防潮灯覆盖较好，净化灯低覆盖主要因为大多数新增记录没有 remark/size
 - `extractCct`/`extractPf`/`extractLmW` 是可复用的通用函数，Batch 2 品类可直接用

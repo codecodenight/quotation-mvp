@@ -7,6 +7,7 @@ import {
   extractProductParamsForTest,
   type ProductForExtraction,
 } from "../../scripts/extract-params";
+import { resolveCategory } from "../../scripts/batch-import-v2.14";
 
 function product(overrides: Partial<ProductForExtraction>): ProductForExtraction {
   return {
@@ -387,5 +388,14 @@ describe("V3.0D remaining category parameter extraction", () => {
       ]),
     );
     expect(params.some((param) => param.paramKey === "width_mm")).toBe(false);
+  });
+});
+
+describe("V2.14 Batch import category mapping", () => {
+  test("maps Batch 3 CSV category names to DB category names", () => {
+    expect(resolveCategory("LED橱柜灯")).toBe("橱柜灯");
+    expect(resolveCategory("市电壁灯")).toBe("壁灯");
+    expect(resolveCategory("支架")).toBe("线条灯");
+    expect(resolveCategory("风扇灯")).toBe("风扇灯");
   });
 });

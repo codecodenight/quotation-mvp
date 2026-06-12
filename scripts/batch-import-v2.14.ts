@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { PrismaClient } from "@prisma/client";
 import * as XLSX from "xlsx";
@@ -32,7 +33,41 @@ const BATCH_CONFIGS = {
     expectedInputFiles: 210,
     categories: ["吸顶灯", "筒灯", "三防灯", "磁吸灯", "净化灯", "镜前灯", "防潮灯"],
   },
+  "3": {
+    label: "Batch 3",
+    reportPath: "docs/v2.14-batch3-report.md",
+    backupPrefix: "dev-before-v2.14-batch3",
+    expectedInputFiles: 115,
+    categories: [
+      "风扇灯",
+      "工作灯",
+      "G4G9",
+      "太阳能壁灯",
+      "Highbay",
+      "市电壁灯",
+      "皮线灯",
+      "应急灯",
+      "地埋灯/地插灯",
+      "太阳能",
+      "LED橱柜灯",
+      "灯丝灯",
+      "支架",
+      "庭院灯",
+      "台灯",
+      "轨道灯",
+    ],
+  },
 } as const;
+
+const CATEGORY_MAP: Record<string, string> = {
+  LED橱柜灯: "橱柜灯",
+  市电壁灯: "壁灯",
+  支架: "线条灯",
+};
+
+export function resolveCategory(csvCategory: string): string {
+  return CATEGORY_MAP[csvCategory] ?? csvCategory;
+}
 
 const batchConfig = readBatchConfig();
 const REPORT_PATH = batchConfig.reportPath;
@@ -50,7 +85,7 @@ function readBatchConfig() {
   const batch = batchArg?.split("=")[1] ?? (process.argv.includes("--batch2") ? "2" : "1");
   const config = BATCH_CONFIGS[batch as keyof typeof BATCH_CONFIGS];
   if (!config) {
-    throw new Error(`未知 V2.14 batch：${batch}。可用参数：--batch=1 或 --batch=2`);
+    throw new Error(`未知 V2.14 batch：${batch}。可用参数：--batch=1、--batch=2 或 --batch=3`);
   }
   return config;
 }
@@ -425,7 +460,7 @@ async function runDryRun(candidates: Candidate[]): Promise<FileResult[]> {
         product = {
           id: `dry-product-${++dryProductSeq}`,
           modelNo: row.modelNo,
-          category: row.category,
+          category: resolveCategory(row.category),
           imagePath: null,
         };
         productByModel.set(modelKey, product);
@@ -529,7 +564,7 @@ async function runApply(candidates: Candidate[]): Promise<FileResult[]> {
                 const createdProduct = await tx.product.create({
                   data: {
                     productName: row.productName,
-                    category: row.category,
+                    category: resolveCategory(row.category),
                     modelNo: row.modelNo,
                     material: null,
                     size: row.size,
@@ -1098,7 +1133,7 @@ function buildReport({
     "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ...SCAN_CATEGORIES.map((category) => {
       const row = categorySummary.get(category);
-      return `| ${escapeMd(category)} | ${row?.files ?? 0} | ${row?.success ?? 0} | ${row?.importRows ?? 0} | ${row?.newProducts ?? 0} | ${row?.reusedProducts ?? 0} | ${row?.newOffers ?? 0} | ${row?.updatedOffers ?? 0} | ${row?.supplementedOffers ?? 0} | ${row?.images ?? 0} |`;
+      return `| ${escapeMd(formatCategoryLabel(category))} | ${row?.files ?? 0} | ${row?.success ?? 0} | ${row?.importRows ?? 0} | ${row?.newProducts ?? 0} | ${row?.reusedProducts ?? 0} | ${row?.newOffers ?? 0} | ${row?.updatedOffers ?? 0} | ${row?.supplementedOffers ?? 0} | ${row?.images ?? 0} |`;
     }),
     "",
     "## 跳过/失败文件",
@@ -1118,7 +1153,7 @@ function buildReport({
     "|---|---:|---:|---:|---:|---:|---:|",
     ...SCAN_CATEGORIES.map((category) => {
       const row = detectionSummary.get(category);
-      return `| ${escapeMd(category)} | ${row?.files ?? 0} | ${row?.headers ?? 0} | ${row?.models ?? 0} | ${row?.rmbPrices ?? 0} | ${row?.fallbackPrices ?? 0} | ${row?.unable ?? 0} |`;
+      return `| ${escapeMd(formatCategoryLabel(category))} | ${row?.files ?? 0} | ${row?.headers ?? 0} | ${row?.models ?? 0} | ${row?.rmbPrices ?? 0} | ${row?.fallbackPrices ?? 0} | ${row?.unable ?? 0} |`;
     }),
     "",
     "## 每文件明细（前 50 个）",
@@ -1154,9 +1189,9 @@ function buildVerificationSection(beforeCounts: DbCounts, afterCounts: DbCounts)
     ["supplier_offers", beforeCounts.supplierOffers, afterCounts.supplierOffers],
     ["files (My Passport)", beforeCounts.filesMyPassport, afterCounts.filesMyPassport],
     ...SCAN_CATEGORIES.map((category): [string, number, number] => [
-      `${category} products`,
-      beforeCounts.categories[category] ?? 0,
-      afterCounts.categories[category] ?? 0,
+      `${formatCategoryLabel(category)} products`,
+      beforeCounts.categories[resolveCategory(category)] ?? 0,
+      afterCounts.categories[resolveCategory(category)] ?? 0,
     ]),
     ["products with images", beforeCounts.productImages, afterCounts.productImages],
     ["price_history", beforeCounts.priceHistory, afterCounts.priceHistory],
@@ -1169,6 +1204,11 @@ function buildVerificationSection(beforeCounts: DbCounts, afterCounts: DbCounts)
   }
   lines.push("");
   return lines;
+}
+
+function formatCategoryLabel(csvCategory: string): string {
+  const dbCategory = resolveCategory(csvCategory);
+  return dbCategory === csvCategory ? csvCategory : `${csvCategory} → ${dbCategory}`;
 }
 
 function buildCategorySummary(results: FileResult[]) {
@@ -1605,11 +1645,13 @@ function escapeMd(value: unknown): string {
   return normalizeText(value).replaceAll("|", "\\|");
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
