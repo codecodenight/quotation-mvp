@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-12
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0A
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0B
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V4.0A)
+## Current State (after V4.0B)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -24,6 +24,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Image backfill round 2 (V2.12): rowRadius 1→3 + generated model component matching; 1,087→1,119 products with images
 - Structured parameter extraction (V3.0A-C): `product_params` key-value table with raw_value, normalized_value, unit, source_field, confidence
 - Product library param filters + tags (V4.0A): category dropdown, watts range, IP dropdown; product cards show param badges with confidence coloring; `product-param-display.ts` reusable formatter
+- Quotes + product library param enhancement (V4.0B): quotes page category/watts/IP/CCT filters + param tags in search results and selected items; product library CCT filter + `<details>` expandable full param table; shared `product-filters.ts` module eliminates duplication
 
 ### Data (after V3.0C)
 - Products: 9,279 across 26 categories (+4,269 from Batch 2)
@@ -165,14 +166,14 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.14 B2 | 批量导入 Batch 2 | 210 文件（210 成功）自动检测导入；+4,269 产品 +4,590 offers +2,579 图片 +2,820 价格历史；吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯 7 品类 |
 | V3.0C | Batch 2 参数提取 | 7 品类 4,809 产品 → 15,905 条参数（覆盖 2,773 产品）；筒灯 86% / 三防灯 89% / 防潮灯 93% / 净化灯 12%（源规格文本缺失）；product_params 11,575→26,758 |
 | V4.0A | 产品库参数筛选 + 参数标签 | 品类下拉（带计数）+ 功率范围（raw SQL CAST）+ IP 下拉；产品卡片参数标签（优先级排序、confidence 颜色）；offer 查询改 explicit select 规避 price_updated_at 脏数据；`product-param-display.ts` 可复用格式化模块 |
+| V4.0B | 报价中心参数筛选 + 产品库参数详情 | 报价中心品类/功率/IP/CCT 筛选 + 搜索结果&已选产品参数标签；产品库 CCT 筛选 + `<details>` 展开全参数表格（来源+置信度）；筛选逻辑提取到 `product-filters.ts` 共享模块 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V4.0B — 产品详情参数卡片** — 产品库结构化参数展示 + 报价页产品搜索增加参数筛选
-2. **V4.0C — 报价 Product Details 生成** — 从 product_params 组装英文规格描述，预览里可切换参数版 vs 原始 remark 版
+1. **V4.0C — 报价 Product Details 生成** — 从 product_params 组装英文规格描述，预览里可切换参数版 vs 原始 remark 版
 3. **V3.0D — 剩余 12 品类参数提取** — 现有 DB 数据提取（灯丝灯/轨道灯/橱柜灯等，预期覆盖率低）
 4. **V2.14 Batch 3** — 全新品类（风扇灯/工作灯/G4G9）+ 低优先级品类（~144 文件）
 5. **V3.0E — Batch 3 参数提取**
@@ -189,6 +190,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.14 Batch 2~~ ✅ 210/210 文件成功导入，+4,269 产品 +4,590 offers +2,579 图片
 - ~~V3.0C — Batch 2 参数提取~~ ✅ 7 品类 4,809 产品 → 15,905 条参数，product_params 26,758
 - ~~V4.0A — 产品库参数筛选~~ ✅ commit 50d0ac4 — 品类下拉 + 功率范围 + IP 筛选 + 产品卡片参数标签
+- ~~V4.0B — 报价中心参数筛选 + 产品库参数详情~~ ✅ commit b7c5028 — 报价中心品类/功率/IP/CCT + 参数标签；产品库 CCT + 展开详情；共享 product-filters.ts
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -202,6 +204,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - 品类名映射已定：市电壁灯→壁灯，LED橱柜灯→橱柜灯
 - V4.0A 功率筛选需 raw SQL（`CAST(normalized_value AS REAL)`），Prisma string comparison 不支持数字语义
 - 部分 offer 的 `price_updated_at` 存在非法时间戳，V4.0A 用 explicit select 规避
+- V4.0B 筛选逻辑成功提取到 `product-filters.ts`，`getParamOptions()` 通用函数同时支持 IP/CCT/未来新参数
+- CCT normalized_value 混合精确值（3000）和范围值（6000-6500），下拉按原值展示，精确匹配过滤
 
 ### Not Now
 - PDF parsing (high effort, uncertain value)
