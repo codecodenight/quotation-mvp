@@ -4,6 +4,7 @@ import Image from "next/image";
 
 import { formatMoney } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
+import { formatParamLabel, sortDisplayParams, type ProductParamDisplay } from "@/lib/product-param-display";
 import {
   buildProductQualityIssueSummary,
   buildProductQualityWhere,
@@ -29,9 +30,13 @@ const SOURCE_FILE_SELECT_LIMIT = 80;
 type ProductsPageProps = {
   searchParams: Promise<{
     search?: string;
+    category?: string;
     factory?: string;
     minPrice?: string;
     maxPrice?: string;
+    minWatts?: string;
+    maxWatts?: string;
+    ip?: string;
     moq?: string;
     quality?: string;
     productId?: string;
@@ -42,24 +47,44 @@ type ProductsPageProps = {
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
   const params = await searchParams;
   const filters = normalizeFilters(params);
-  const [products, sourceFiles, qualityStats] = await Promise.all([
-    prisma.product.findMany({
-      where: buildProductWhere(filters),
-      include: {
-        supplierOffers: {
-          include: { sourceFile: true },
-          orderBy: [{ factoryName: "asc" }, { createdAt: "desc" }],
-        },
-      },
-      orderBy: [{ updatedAt: "desc" }, { productName: "asc" }],
-      take: PRODUCT_LIST_LIMIT,
-    }),
+  const [wattsProductIds, sourceFiles, qualityStats, categories, ipOptions] = await Promise.all([
+    getProductIdsByWattsRange(filters),
     prisma.file.findMany({
       orderBy: [{ fileName: "asc" }],
       take: SOURCE_FILE_SELECT_LIMIT,
     }),
     getProductQualityStats(),
+    getCategoryOptions(),
+    getIpOptions(),
   ]);
+  const products = await prisma.product.findMany({
+    where: buildProductWhere(filters, wattsProductIds),
+    include: {
+      supplierOffers: {
+        select: {
+          id: true,
+          factoryName: true,
+          purchasePrice: true,
+          currency: true,
+          moq: true,
+          ctnQty: true,
+          ctnLength: true,
+          ctnWidth: true,
+          ctnHeight: true,
+          leadTime: true,
+          sourceFileId: true,
+          remark: true,
+          sourceFile: { select: { fileName: true } },
+        },
+        orderBy: [{ factoryName: "asc" }, { createdAt: "desc" }],
+      },
+      params: {
+        orderBy: { paramKey: "asc" },
+      },
+    },
+    orderBy: [{ updatedAt: "desc" }, { productName: "asc" }],
+    take: PRODUCT_LIST_LIMIT,
+  });
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -81,7 +106,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
 
       <section className="mb-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
         <form className="rounded-md border border-line bg-paper p-4 shadow-panel">
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px_auto]">
             <Field label="搜索">
               <input
                 name="search"
@@ -90,8 +115,39 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
                 className={inputClass}
               />
             </Field>
+            <Field label="品类">
+              <select name="category" defaultValue={filters.category} className={inputClass}>
+                <option value="">全部品类</option>
+                {categories.map((category) => (
+                  <option key={category.category} value={category.category}>
+                    {category.category} ({category.count})
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="工厂">
               <input name="factory" defaultValue={filters.factory} placeholder="工厂名" className={inputClass} />
+            </Field>
+            <div className="flex items-end">
+              <button className="h-10 w-full rounded-md bg-ink px-4 text-sm font-semibold text-white">筛选</button>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-6">
+            <Field label="最小功率">
+              <input name="minWatts" defaultValue={filters.minWatts} placeholder="10" className={inputClass} />
+            </Field>
+            <Field label="最大功率">
+              <input name="maxWatts" defaultValue={filters.maxWatts} placeholder="50" className={inputClass} />
+            </Field>
+            <Field label="IP">
+              <select name="ip" defaultValue={filters.ip} className={inputClass}>
+                <option value="">不限</option>
+                {ipOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value} ({option.count})
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="最低价">
               <input name="minPrice" defaultValue={filters.minPrice} placeholder="0" className={inputClass} />
@@ -102,9 +158,6 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             <Field label="MOQ">
               <input name="moq" defaultValue={filters.moq} placeholder="1000/色" className={inputClass} />
             </Field>
-          </div>
-          <div className="mt-3 flex justify-end">
-            <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">筛选</button>
           </div>
         </form>
 
@@ -187,6 +240,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
                     <Info label="材质" value={product.material} />
                     <Info label="尺寸" value={product.size} />
                   </div>
+                  <ParamTags params={product.params} />
                   {product.remark ? <p className="mt-3 whitespace-pre-line text-sm text-stone-600">{product.remark}</p> : null}
                 </div>
               </div>
@@ -279,7 +333,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
                   ))}
                   {product.supplierOffers.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-stone-500" colSpan={7}>
+                      <td className="px-3 py-6 text-center text-stone-500" colSpan={8}>
                         暂无工厂报价
                       </td>
                     </tr>
@@ -484,12 +538,50 @@ function ProductThumbnail({ productId, hasImage, label }: { productId: string; h
   );
 }
 
+function ParamTags({ params }: { params: ProductParamDisplay[] }) {
+  const tags = sortDisplayParams(params)
+    .map((param) => ({ param, label: formatParamLabel(param) }))
+    .filter((tag) => tag.label.length > 0);
+  if (tags.length === 0) {
+    return null;
+  }
+
+  const visibleTags = tags.slice(0, 8);
+  const hiddenCount = tags.length - visibleTags.length;
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {visibleTags.map(({ param, label }, index) => (
+        <span
+          key={`${param.paramKey}-${label}-${index}`}
+          className={`rounded-sm border px-2 py-1 text-xs font-medium ${
+            param.confidence === "high"
+              ? "border-blue-200 bg-blue-50 text-blue-700"
+              : "border-stone-200 bg-stone-50 text-stone-600"
+          }`}
+        >
+          {label}
+        </span>
+      ))}
+      {hiddenCount > 0 ? (
+        <span className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs font-medium text-stone-500">
+          +{hiddenCount} more
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function normalizeFilters(params: Awaited<ProductsPageProps["searchParams"]>) {
   return {
     search: params.search?.trim() ?? "",
+    category: params.category?.trim() ?? "",
     factory: params.factory?.trim() ?? "",
     minPrice: params.minPrice?.trim() ?? "",
     maxPrice: params.maxPrice?.trim() ?? "",
+    minWatts: params.minWatts?.trim() ?? "",
+    maxWatts: params.maxWatts?.trim() ?? "",
+    ip: params.ip?.trim() ?? "",
     moq: params.moq?.trim() ?? "",
     quality: normalizeProductQualityFilter(params.quality),
     productId: params.productId?.trim() ?? "",
@@ -497,7 +589,10 @@ function normalizeFilters(params: Awaited<ProductsPageProps["searchParams"]>) {
   };
 }
 
-function buildProductWhere(filters: ReturnType<typeof normalizeFilters>): Prisma.ProductWhereInput {
+function buildProductWhere(
+  filters: ReturnType<typeof normalizeFilters>,
+  wattsProductIds: string[] | null,
+): Prisma.ProductWhereInput {
   if (filters.productId) {
     return { id: filters.productId };
   }
@@ -516,6 +611,10 @@ function buildProductWhere(filters: ReturnType<typeof normalizeFilters>): Prisma
         { category: { contains: filters.search } },
       ],
     });
+  }
+
+  if (filters.category) {
+    and.push({ category: filters.category });
   }
 
   if (filters.factory) {
@@ -540,11 +639,91 @@ function buildProductWhere(filters: ReturnType<typeof normalizeFilters>): Prisma
     and.push({ supplierOffers: { some: priceFilter } });
   }
 
+  if (filters.ip) {
+    and.push({
+      params: {
+        some: {
+          paramKey: "ip",
+          normalizedValue: filters.ip,
+        },
+      },
+    });
+  }
+
+  if (hasWattsFilter(filters)) {
+    and.push({ id: { in: wattsProductIds ?? [] } });
+  }
+
   return and.length > 0 ? { AND: and } : {};
 }
 
 function normalizeProductQualityFilter(value: string | undefined): ProductQualityFilter {
   return PRODUCT_QUALITY_FILTERS.some((filter) => filter.value === value) ? (value as ProductQualityFilter) : "all";
+}
+
+async function getCategoryOptions() {
+  const categories = await prisma.product.groupBy({
+    by: ["category"],
+    where: { category: { not: null } },
+    _count: { _all: true },
+  });
+
+  const options: { category: string; count: number }[] = [];
+  for (const category of categories) {
+    if (category.category) {
+      options.push({
+        category: category.category,
+        count: category._count._all,
+      });
+    }
+  }
+  return options.sort((left, right) => right.count - left.count || left.category.localeCompare(right.category));
+}
+
+async function getIpOptions() {
+  const rows = await prisma.$queryRaw<{ normalized_value: string; cnt: bigint }[]>`
+    SELECT normalized_value, COUNT(*) as cnt
+    FROM product_params
+    WHERE param_key = 'ip'
+      AND normalized_value IS NOT NULL
+      AND TRIM(normalized_value) <> ''
+    GROUP BY normalized_value
+    ORDER BY cnt DESC
+  `;
+
+  return rows.map((row) => ({
+    value: row.normalized_value,
+    count: Number(row.cnt),
+  }));
+}
+
+async function getProductIdsByWattsRange(filters: ReturnType<typeof normalizeFilters>): Promise<string[] | null> {
+  const min = parseOptionalNonNegativeDecimal(filters.minWatts);
+  const max = parseOptionalNonNegativeDecimal(filters.maxWatts);
+  if (min === null && max === null) {
+    return null;
+  }
+
+  let sql = "SELECT DISTINCT product_id FROM product_params WHERE param_key = 'watts'";
+  const params: number[] = [];
+  if (min !== null) {
+    sql += " AND CAST(normalized_value AS REAL) >= ?";
+    params.push(min);
+  }
+  if (max !== null) {
+    sql += " AND CAST(normalized_value AS REAL) <= ?";
+    params.push(max);
+  }
+
+  const rows = await prisma.$queryRawUnsafe<{ product_id: string }[]>(sql, ...params);
+  return rows.map((row) => row.product_id);
+}
+
+function hasWattsFilter(filters: ReturnType<typeof normalizeFilters>): boolean {
+  return (
+    parseOptionalNonNegativeDecimal(filters.minWatts) !== null ||
+    parseOptionalNonNegativeDecimal(filters.maxWatts) !== null
+  );
 }
 
 async function getProductQualityStats() {
@@ -576,7 +755,7 @@ async function getProductQualityStats() {
 
 function buildProductsHref(filters: ReturnType<typeof normalizeFilters>, quality: ProductQualityFilter): string {
   const params = new URLSearchParams();
-  for (const key of ["search", "factory", "minPrice", "maxPrice", "moq"] as const) {
+  for (const key of ["search", "category", "factory", "minPrice", "maxPrice", "minWatts", "maxWatts", "ip", "moq"] as const) {
     if (filters[key]) {
       params.set(key, filters[key]);
     }
@@ -590,6 +769,13 @@ function buildProductsHref(filters: ReturnType<typeof normalizeFilters>, quality
 
 function isPositiveDecimal(value: string): boolean {
   return /^\d+(\.\d+)?$/.test(value) && Number(value) > 0;
+}
+
+function parseOptionalNonNegativeDecimal(value: string): number | null {
+  if (!/^\d+(\.\d+)?$/.test(value)) {
+    return null;
+  }
+  return Number(value);
 }
 
 function formatCtnDimensions(length: string | null, width: string | null, height: string | null): string {
