@@ -174,12 +174,13 @@ Phase 1 and Phase 2 may be done together.
 | V3.0B | Batch 1 参数提取（投光灯/面板灯/线条灯/路灯/灯带） | ✓ |
 | V2.14 Batch 2 | 批量导入第二批（吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯） | ✓ |
 | V3.0C | Batch 2 参数提取（吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯） | ✓ |
+| V3.0D | 剩余 12 品类参数提取（灯丝灯/轨道灯/橱柜灯/太阳能壁灯等） | ✓ |
 
 ### Current Data
 
 - Products: 9,279 across 26 categories
 - Supplier offers: 9,913
-- Product params: 26,758 (覆盖 5,699 产品，high 8,735 + medium 18,023)
+- Product params: 31,923 (覆盖 6,782 产品 / 26 品类，high 10,572 + medium 21,351)
 - Product images: 5,810 (63% coverage)
 - Imported from 472 source files with active supplier offers (992 My Passport file records)
 - CTN coverage: ctn_qty 2,423 / L×W×H 1,505 out of 9,913 offers
@@ -545,4 +546,4 @@ None. Pending next task assignment.
 
 1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
 2. 3,469 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行）
-3. V3.0C 已完成；净化灯参数覆盖偏低（1,559 产品中仅 188 条有 remark、183 条有 size，主要是源规格文本缺失）
+3. V3.0D 已完成；净化灯、应急灯、皮线灯等仍受源规格文本限制，参数主要来自尺寸/少量规格字段

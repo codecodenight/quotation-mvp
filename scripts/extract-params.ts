@@ -17,6 +17,24 @@ const TARGET_CATEGORY_CONFIGS = {
     categories: ["吸顶灯", "筒灯", "三防灯", "磁吸灯", "净化灯", "镜前灯", "防潮灯"],
     defaultReport: "docs/v3.0c-dry-run-report.md",
   },
+  v3d: {
+    title: "V3.0D",
+    categories: [
+      "灯丝灯",
+      "轨道灯",
+      "橱柜灯",
+      "太阳能壁灯",
+      "庭院灯",
+      "应急灯",
+      "地埋灯/地插灯",
+      "壁灯",
+      "台灯",
+      "灯管",
+      "Highbay",
+      "皮线灯",
+    ],
+    defaultReport: "docs/v3.0d-dry-run-report.md",
+  },
 } as const;
 
 const targetConfig = readTargetConfig();
@@ -103,7 +121,7 @@ function readTargetConfig() {
   const target = readArg("--target") ?? "v3c";
   const config = TARGET_CATEGORY_CONFIGS[target as keyof typeof TARGET_CATEGORY_CONFIGS];
   if (!config) {
-    throw new Error(`Unknown extraction target: ${target}. Use --target=v3b or --target=v3c.`);
+    throw new Error(`Unknown extraction target: ${target}. Use --target=v3b, --target=v3c or --target=v3d.`);
   }
   return config;
 }
@@ -237,6 +255,42 @@ function extractProductParams(product: ProductForExtraction, category: TargetCat
       break;
     case "防潮灯":
       params.push(...extractMoistureProofParams(product));
+      break;
+    case "灯丝灯":
+      params.push(...extractFilamentParams(product));
+      break;
+    case "轨道灯":
+      params.push(...extractTrackLightParams(product));
+      break;
+    case "橱柜灯":
+      params.push(...extractCabinetLightParams(product));
+      break;
+    case "太阳能壁灯":
+      params.push(...extractSolarWallLightParams(product));
+      break;
+    case "庭院灯":
+      params.push(...extractGenericParams(product));
+      break;
+    case "应急灯":
+      params.push(...extractGenericParams(product));
+      break;
+    case "地埋灯/地插灯":
+      params.push(...extractInGroundLightParams(product));
+      break;
+    case "壁灯":
+      params.push(...extractWallLightParams(product));
+      break;
+    case "台灯":
+      params.push(...extractTableLampParams(product));
+      break;
+    case "灯管":
+      params.push(...extractTubeLightParams(product));
+      break;
+    case "Highbay":
+      params.push(...extractHighbayParams(product));
+      break;
+    case "皮线灯":
+      params.push(...extractGenericParams(product));
       break;
   }
 
@@ -834,6 +888,196 @@ function extractMoistureProofParams(product: ProductForExtraction): ExtractedPar
   return params;
 }
 
+function extractFilamentParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const productName = readSource(product, "product_name");
+  const remark = readSource(product, "remark");
+
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(productName, "product_name"));
+  params.push(...extractLumens(remark, "remark"));
+  params.push(...extractBases(productName, "product_name"));
+  params.push(...extractBases(modelNo, "model_no"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractCri(remark, "remark"));
+  params.push(...extractBeamAngles(remark, "remark"));
+
+  return params;
+}
+
+function extractTrackLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params = extractGenericParams(product);
+  const modelNo = readSource(product, "model_no");
+  const productName = readSource(product, "product_name");
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(productName, "product_name"));
+  return params;
+}
+
+function extractCabinetLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params = extractGenericParams(product);
+  const modelNo = readSource(product, "model_no");
+  const productName = readSource(product, "product_name");
+  const remark = readSource(product, "remark");
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractBases(productName, "product_name"));
+  params.push(...extractBases(modelNo, "model_no"));
+  return params;
+}
+
+function extractSolarWallLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const productName = readSource(product, "product_name");
+  const remark = readSource(product, "remark");
+  const joined = `${productName} ${remark}`;
+
+  params.push(...extractWatts(joined, remark ? "remark" : "product_name"));
+  params.push(...extractIp(joined, remark ? "remark" : "product_name"));
+  params.push(...extractLumensLoose(remark, "remark"));
+  params.push(...extractLumensLoose(productName, "product_name"));
+  params.push(...extractCct(remark, "remark"));
+  params.push(...extractLabeledCct(remark, "remark"));
+  params.push(...extractSolarCctTolerance(remark, "remark"));
+  params.push(...extractBatterySpec(remark, "remark"));
+  params.push(...extractSensor(joined, remark ? "remark" : "product_name"));
+
+  if (/感应|motion|sensor/i.test(joined) && !params.some((item) => item.paramKey === "sensor")) {
+    params.push(param("sensor", "感应/motion", "motion", null, remark ? "remark" : "product_name", "medium"));
+  }
+
+  return params;
+}
+
+function extractInGroundLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const remark = readSource(product, "remark");
+  const material = readSource(product, "material");
+  const joined = `${modelNo} ${remark} ${material}`;
+
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractIp(joined, "remark"));
+  params.push(...extractCct(remark, "remark"));
+  params.push(...extractLabeledCct(remark, "remark"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  if (material) {
+    params.push(param("material", material, normalizeMaterial(material), null, "material", "medium"));
+  }
+
+  return params;
+}
+
+function extractWallLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const productName = readSource(product, "product_name");
+  const remark = readSource(product, "remark");
+  const material = readSource(product, "material");
+  const joined = `${modelNo} ${productName} ${remark} ${material}`;
+
+  params.push(...extractWatts(joined, remark ? "remark" : "model_no"));
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractIp(joined, "remark"));
+  params.push(...extractCri(remark, "remark"));
+  params.push(...extractLabeledCri(remark, "remark"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  if (material) {
+    params.push(param("material", material, normalizeMaterial(material), null, "material", "high"));
+  }
+
+  return params;
+}
+
+function extractTableLampParams(product: ProductForExtraction): ExtractedParam[] {
+  const params = extractGenericParams(product);
+  const remark = readSource(product, "remark");
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  return params;
+}
+
+function extractTubeLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params = extractGenericParams(product);
+  const productName = readSource(product, "product_name");
+  const modelNo = readSource(product, "model_no");
+  params.push(...extractWatts(productName, "product_name"));
+  params.push(...extractWatts(modelNo, "model_no"));
+  return params;
+}
+
+function extractHighbayParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const productName = readSource(product, "product_name");
+  const remark = readSource(product, "remark");
+  const material = readSource(product, "material");
+  const joined = `${modelNo} ${productName} ${remark} ${material}`;
+
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(productName, "product_name"));
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  if (material) {
+    params.push(param("material", material, normalizeMaterial(material), null, "material", "medium"));
+  }
+  params.push(...extractCct(remark, "remark"));
+  params.push(...extractLabeledCct(remark, "remark"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractIp(joined, "remark"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractCri(remark, "remark"));
+  params.push(...extractLmW(remark, "remark"));
+
+  return params;
+}
+
+function extractGenericParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const modelNo = readSource(product, "model_no");
+  const productName = readSource(product, "product_name");
+  const remark = readSource(product, "remark");
+  const material = readSource(product, "material");
+  const offerRemark = readSource(product, "offer_remark");
+  const joined = `${remark} ${modelNo} ${productName} ${material} ${offerRemark}`;
+
+  params.push(...extractWatts(remark, "remark"));
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractWatts(modelNo, "model_no"));
+  params.push(...extractWatts(productName, "product_name"));
+  params.push(...extractIp(joined, remark ? "remark" : "model_no"));
+  params.push(...extractCct(remark, "remark"));
+  params.push(...extractLabeledCct(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  params.push(...extractChineseMaterial(remark, "remark"));
+  params.push(...extractCri(remark, "remark"));
+  params.push(...extractLabeledCri(remark, "remark"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractLumens(remark, "remark"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractPf(remark, "remark"));
+  params.push(...extractLabeledPf(remark, "remark"));
+  params.push(...extractLmW(remark, "remark"));
+  params.push(...extractSensor(joined, remark ? "remark" : "model_no"));
+  params.push(...extractWarranty(remark, "remark"));
+  params.push(...extractCertification(remark, "remark"));
+  params.push(...extractDimmable(joined, remark ? "remark" : "model_no"));
+  params.push(...extractBases(productName, "product_name"));
+  params.push(...extractBases(modelNo, "model_no"));
+  if (material) {
+    params.push(param("material", material, normalizeMaterial(material), null, "material", "medium"));
+  }
+
+  return params;
+}
+
 function extractCommonSizeParams(size: string | null): ExtractedParam[] {
   const raw = cleanInline(size ?? "");
   if (!raw) {
@@ -841,6 +1085,13 @@ function extractCommonSizeParams(size: string | null): ExtractedParam[] {
   }
   if (isPriceLikeSize(raw)) {
     return [];
+  }
+  const stringLightLength = extractStringLightLength(raw);
+  if (stringLightLength) {
+    return [
+      param("length_mm", raw, stringLightLength, "mm", "size", "medium"),
+      param("size_display", raw, `${stringLightLength}mm`, null, "size", "medium"),
+    ];
   }
 
   const unitMultiplier = detectSizeUnitMultiplier(raw);
@@ -916,7 +1167,7 @@ function extractWatts(value: string, sourceField: SourceField): ExtractedParam[]
 function extractLabeledWatts(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   const regex =
-    /(?:额定功率|功率(?!\s*(?:因数|因素|系数))|Power|Watt)\s*(?:[（(]\s*W\s*[）)])?\s*(?:±\d+%)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*W?/gi;
+    /(?:额定功率|功率(?!\s*(?:因数|因素|系数))|Power|Wattage|Watt)\s*(?:[（(]\s*W\s*[）)]|[（(]\s*±\d+%\s*[）)])?\s*(?:±\d+%)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*W?/gi;
   for (const match of value.matchAll(regex)) {
     params.push(param("watts", match[0], trimLeadingZero(match[1]), "W", sourceField, "high"));
   }
@@ -978,13 +1229,29 @@ function extractLabeledPf(value: string, sourceField: SourceField): ExtractedPar
 export function extractLmW(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   const labeledPatterns = [
-    /(?:LM\/W|Lumen|光效)\s*(?:[（(]\s*LM\/W\s*[）)])?\s*[:：]?\s*(\d+)\s*[-~]\s*(\d+)\s*(?:lm\/w|LM\/W)?/gi,
-    /(?:LM\/W|Lumen|光效)\s*(?:[（(]\s*LM\/W\s*[）)])?\s*[:：]?\s*(\d+)\s*(?:lm\/w|LM\/W)?/gi,
+    /(?:LM\/W|光效)\s*(?:[（(]\s*LM\/W\s*[）)])?\s*[:：]?\s*(\d+)\s*[-~]\s*(\d+)\s*(?:lm\/w|LM\/W)?/gi,
+    /(?:LM\/W|光效)\s*(?:[（(]\s*LM\/W\s*[）)])?\s*[:：]?\s*(\d+)\s*(?:lm\/w|LM\/W)?/gi,
+    /Lumen\s*[:：]?\s*(\d+)\s*[-~]\s*(\d+)\s*(?:lm\/w|LM\/W)/gi,
+    /Lumen\s*[:：]?\s*(\d+)\s*(?:lm\/w|LM\/W)/gi,
   ];
   for (const match of value.matchAll(labeledPatterns[0])) {
     params.push(param("luminous_efficacy", match[0], `${match[1]}-${match[2]}`, "lm/W", sourceField, "medium"));
   }
   for (const match of value.matchAll(labeledPatterns[1])) {
+    const normalized = match[1];
+    if (params.some((item) => item.normalizedValue?.includes(normalized))) {
+      continue;
+    }
+    params.push(param("luminous_efficacy", match[0], normalized, "lm/W", sourceField, "medium"));
+  }
+  for (const match of value.matchAll(labeledPatterns[2])) {
+    const normalized = `${match[1]}-${match[2]}`;
+    if (params.some((item) => item.normalizedValue === normalized)) {
+      continue;
+    }
+    params.push(param("luminous_efficacy", match[0], normalized, "lm/W", sourceField, "medium"));
+  }
+  for (const match of value.matchAll(labeledPatterns[3])) {
     const normalized = match[1];
     if (params.some((item) => item.normalizedValue?.includes(normalized))) {
       continue;
@@ -1051,6 +1318,35 @@ function extractLumens(value: string, sourceField: SourceField): ExtractedParam[
   return params;
 }
 
+function extractLumensLoose(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [...extractLumens(value, sourceField)];
+  for (const match of value.matchAll(/(?<![A-Za-z0-9])(\d+(?:\.\d+)?)\s*(?:LM|lm)\b/g)) {
+    const normalized = trimLeadingZero(match[1]);
+    if (params.some((item) => item.normalizedValue === normalized)) {
+      continue;
+    }
+    params.push(param("lumens", match[0], normalized, "lm", sourceField, "medium"));
+  }
+  return params;
+}
+
+function extractSolarCctTolerance(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  for (const match of value.matchAll(/(\d{4,5})\s*[±]\s*(\d{2,4})\s*K?/g)) {
+    params.push(param("cct", match[0], `${match[1]}±${match[2]}`, "K", sourceField, "medium"));
+  }
+  return params;
+}
+
+function extractBatterySpec(value: string, sourceField: SourceField): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  for (const match of value.matchAll(/\b18650\s+\d+\s*[×xX*]\s*\d+\s*MAH\s+[\d.]+\s*V\b/gi)) {
+    const normalized = cleanInline(match[0]).replace(/[×xX]/g, "*").replace(/\s+/g, " ").toUpperCase();
+    params.push(param("battery_spec", match[0], normalized, null, sourceField, "medium"));
+  }
+  return params;
+}
+
 function extractBeamAngles(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
   for (const match of value.matchAll(/Beam\s*Angle\s*[:：]?\s*(\d{2,3})\s*[×xX*]\s*(\d{2,3})\s*[°度]?/gi)) {
@@ -1081,7 +1377,9 @@ function extractIp(value: string, sourceField: SourceField): ExtractedParam[] {
 
 function extractLabeledMaterial(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
-  const match = value.match(/Material\s*[:：]\s*([^:：]+?)(?=\s+(?:Ra|CRI|PF|Power|Watt|Beam|Lumen|LM\/W|Voltage|CCT|IP)\b|$)/i);
+  const match = value.match(
+    /Material\s*[:：]\s*([^:：]+?)(?=\s+(?:Ra|CRI|PF|Power|Watt|Beam|Lumen|LM\/W|Voltage|CCT|IP|Size|Function|Switch)\b|$)/i,
+  );
   if (match) {
     params.push(param("material", match[1], normalizeMaterial(match[1]), null, sourceField, "medium"));
   }
@@ -1648,6 +1946,22 @@ function firstNumber(value: string): number | null {
 
 function isPriceLikeSize(value: string): boolean {
   return /[¥￥$]|(?:RMB|CNY|USD)\b|单价|价格|报价|含税|不含税/i.test(cleanInline(value));
+}
+
+function extractStringLightLength(value: string): string | null {
+  const raw = cleanInline(value);
+  if (!/珠/.test(raw)) {
+    return null;
+  }
+  const meterMatch = raw.match(/(\d+(?:\.\d+)?)\s*m\b/i);
+  if (meterMatch) {
+    return formatNumber(Number(meterMatch[1]) * 1000);
+  }
+  const centimeterMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:cm|厘米)\b/i);
+  if (centimeterMatch) {
+    return formatNumber(Number(centimeterMatch[1]) * 10);
+  }
+  return null;
 }
 
 function buildSizeDisplay(dimensions: Array<[string, number]>): string {

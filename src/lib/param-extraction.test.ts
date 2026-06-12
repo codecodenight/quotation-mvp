@@ -32,6 +32,7 @@ describe("V3.0B parameter extraction", () => {
     expect(extractLmW("Lumen: 90-100lm/w", "remark")).toMatchObject([
       { paramKey: "luminous_efficacy", normalizedValue: "90-100", unit: "lm/W" },
     ]);
+    expect(extractLmW("LUMEN: 1400LM", "remark")).toEqual([]);
   });
 
   test("extracts floodlight structured remark fields", () => {
@@ -261,5 +262,130 @@ describe("V3.0C Batch 2 parameter extraction", () => {
         expect.objectContaining({ paramKey: "material", normalizedValue: "壳体压铸铝 PC罩，IP54" }),
       ]),
     );
+  });
+});
+
+describe("V3.0D remaining category parameter extraction", () => {
+  test("extracts filament bulb watts, lumens, base and size", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "灯丝灯",
+        productName: "G95 Pumpkin Golden - 2W - E27 - 95*135",
+        modelNo: "G95 - 2W - E27",
+        size: "95*135",
+        remark: "Watts: 2W\nLumens: 140Lm\nLED Chip Model: 1PCS\nProduct Size（mm): 95*138",
+      }),
+      "灯丝灯",
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "2" }),
+        expect.objectContaining({ paramKey: "lumens", normalizedValue: "140" }),
+        expect.objectContaining({ paramKey: "base", normalizedValue: "E27" }),
+        expect.objectContaining({ paramKey: "size_display", normalizedValue: "95×135mm" }),
+      ]),
+    );
+  });
+
+  test("extracts solar wall light IP, lumens, CCT, battery and sensor", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "太阳能壁灯",
+        productName: "Solar wall light 500LM",
+        remark: "太阳能壁灯 IP65 500LM 色温6500±500K 感应角度120度 电池18650 1*2000MAH 3.7V PIR感应",
+      }),
+      "太阳能壁灯",
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "ip", normalizedValue: "IP65" }),
+        expect.objectContaining({ paramKey: "lumens", normalizedValue: "500" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "6500±500" }),
+        expect.objectContaining({ paramKey: "battery_spec", normalizedValue: "18650 1*2000MAH 3.7V" }),
+        expect.objectContaining({ paramKey: "sensor", normalizedValue: "PIR" }),
+      ]),
+    );
+  });
+
+  test("extracts highbay structured fields", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "Highbay",
+        modelNo: "HB-100W",
+        size: "300*150",
+        remark: "Watt (±5%): 100W\nMaterial: Aluminum+Optical Lens\nCCT: 3000K /4000K /6500K\nBeam Angle: 90°\nIP: 65",
+      }),
+      "Highbay",
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "100" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "Aluminum+Optical Lens" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "3000" }),
+        expect.objectContaining({ paramKey: "beam_angle", normalizedValue: "90" }),
+        expect.objectContaining({ paramKey: "ip", normalizedValue: "IP65" }),
+      ]),
+    );
+  });
+
+  test("extracts in-ground light wattage, IP, CCT and material", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "地埋灯/地插灯",
+        size: "Φ43*245MM",
+        remark:
+          "Specification: Φ43*245MM black housing+spike\nMaterial: die casting aluminum\nIP Grade：IP65\nCCT: 3000K\nWattage: 5WCOB\nBeam Angle: 60°",
+      }),
+      "地埋灯/地插灯",
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "5" }),
+        expect.objectContaining({ paramKey: "ip", normalizedValue: "IP65" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "3000" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "die casting aluminum" }),
+        expect.objectContaining({ paramKey: "beam_angle", normalizedValue: "60" }),
+      ]),
+    );
+  });
+
+  test("extracts table lamp material from technical data", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "台灯",
+        remark:
+          "Technical Data: TB-A-01 Size: D12*H30 CM Material: Metal with powder coating+Pine bracket Function: ON/OFF Switch online",
+      }),
+      "台灯",
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "material", normalizedValue: "Metal with powder coating+Pine bracket" }),
+      ]),
+    );
+  });
+
+  test("does not treat string-light bead count as a physical width", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "皮线灯",
+        size: "5m/50珠",
+        material: "铜线+LED",
+      }),
+      "皮线灯",
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "length_mm", normalizedValue: "5000" }),
+        expect.objectContaining({ paramKey: "size_display", normalizedValue: "5000mm" }),
+      ]),
+    );
+    expect(params.some((param) => param.paramKey === "width_mm")).toBe(false);
   });
 });
