@@ -1,5 +1,7 @@
 import ExcelJS from "exceljs";
 
+import { buildProductDetailsFromParams, type ProductDetailsParam } from "./product-details-builder";
+
 type SalePriceInput = {
   purchasePrice: string | number | { toString(): string };
   purchaseCurrency: string;
@@ -24,6 +26,7 @@ export type QuoteWorkbookItem = {
   material: string | null;
   size: string | null;
   productRemark: string | null;
+  productParams?: ProductDetailsParam[];
   remark: string | null;
 };
 
@@ -251,6 +254,20 @@ function writeHeaderRows(
 }
 
 export function buildProductDetails(item: QuoteWorkbookItem): string {
+  if (item.productParams && item.productParams.length > 0) {
+    const paramDetails = buildProductDetailsFromParams(item.productParams);
+    if (paramDetails) {
+      const size = item.size?.trim() ?? "";
+      const hasSizeDisplay = item.productParams.some(
+        (param) => param.paramKey === "size_display" && Boolean(param.normalizedValue?.trim()),
+      );
+      if (!hasSizeDisplay && size) {
+        return `${paramDetails}\nSize: ${size}`;
+      }
+      return paramDetails;
+    }
+  }
+
   const remark = stripModelPrefix(item.productRemark?.trim() ?? "", item.modelNo);
   const productName = stripModelPrefix(item.productName?.trim() ?? "", item.modelNo);
   const size = item.size?.trim() ?? "";

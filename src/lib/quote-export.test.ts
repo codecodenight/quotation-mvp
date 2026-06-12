@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import ExcelJS from "exceljs";
 import { describe, expect, test } from "vitest";
 
-import { calculateSalePrice, writeQuoteWorkbook } from "./quote-export";
+import { buildProductDetails, calculateSalePrice, writeQuoteWorkbook } from "./quote-export";
 
 const quote = {
   id: "quote-1",
@@ -69,6 +69,49 @@ describe("calculateSalePrice", () => {
         profitMargin: "0.2",
       }),
     ).toThrow("汇率不能为空");
+  });
+});
+
+describe("buildProductDetails", () => {
+  test("uses structured params when at least 2 displayable params exist", () => {
+    expect(
+      buildProductDetails({
+        ...quote.items[0],
+        productRemark: "Messy raw remark",
+        size: "Raw size",
+        productParams: [
+          { paramKey: "watts", normalizedValue: "18", unit: "W", rawValue: "18W" },
+          { paramKey: "ip", normalizedValue: "IP65", unit: null, rawValue: "IP65" },
+          { paramKey: "size_display", normalizedValue: "90x66x23mm", unit: null, rawValue: "90*66*23" },
+        ],
+      }),
+    ).toBe("Power: 18W\nIP: IP65\nSize: 90x66x23mm");
+  });
+
+  test("falls back to remark and size when structured params are insufficient", () => {
+    expect(
+      buildProductDetails({
+        ...quote.items[0],
+        productName: "Panel Light",
+        modelNo: "PNL-1",
+        productRemark: "Clean fallback remark",
+        size: "600x600",
+        productParams: [{ paramKey: "watts", normalizedValue: "18", unit: "W", rawValue: "18W" }],
+      }),
+    ).toBe("Clean fallback remark\nSize: 600x600");
+  });
+
+  test("appends raw size only when param details do not already include size_display", () => {
+    expect(
+      buildProductDetails({
+        ...quote.items[0],
+        size: "Raw size",
+        productParams: [
+          { paramKey: "watts", normalizedValue: "18", unit: "W", rawValue: "18W" },
+          { paramKey: "ip", normalizedValue: "IP65", unit: null, rawValue: "IP65" },
+        ],
+      }),
+    ).toBe("Power: 18W\nIP: IP65\nSize: Raw size");
   });
 });
 

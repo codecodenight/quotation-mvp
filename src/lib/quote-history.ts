@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import type { ProductDetailsParam } from "./product-details-builder";
 import { buildProductDetails } from "./quote-export";
 
 export type QuoteSearchFilters = {
@@ -98,6 +99,7 @@ type QuoteDetailItemRow = {
     material: string | null;
     size: string | null;
     remark: string | null;
+    params?: ProductDetailsParam[];
   };
   supplierOffer: {
     factoryName?: string | null;
@@ -188,6 +190,12 @@ function serializeQuoteDetailItem(item: QuoteDetailItemRow): QuoteDetailItem {
       material: item.product.material,
       size: item.product.size,
       productRemark: item.product.remark,
+      productParams: item.product.params?.map((param) => ({
+        paramKey: param.paramKey,
+        rawValue: param.rawValue,
+        normalizedValue: param.normalizedValue,
+        unit: param.unit,
+      })),
       remark: item.remark,
     }),
     purchasePrice: Number(item.purchasePrice.toString()),

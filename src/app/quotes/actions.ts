@@ -65,6 +65,7 @@ export async function createQuote(formData: FormData): Promise<CreateQuoteResult
       material: offer.product.material,
       size: offer.product.size,
       productRemark: offer.product.remark,
+      productParams: mapProductParams(offer.product.params),
       remark,
     })),
   };
@@ -133,6 +134,7 @@ export async function previewQuote(formData: FormData): Promise<QuotePreviewData
       material: offer.product.material,
       size: offer.product.size,
       productRemark: offer.product.remark,
+      productParams: mapProductParams(offer.product.params),
       remark,
     })),
   });
@@ -164,8 +166,29 @@ export async function getQuoteDetail(quoteId: string): Promise<QuoteDetail> {
     include: {
       items: {
         include: {
-          product: true,
-          supplierOffer: true,
+          product: {
+            include: {
+              params: {
+                select: {
+                  paramKey: true,
+                  rawValue: true,
+                  normalizedValue: true,
+                  unit: true,
+                  confidence: true,
+                },
+              },
+            },
+          },
+          supplierOffer: {
+            select: {
+              factoryName: true,
+              moq: true,
+              ctnQty: true,
+              ctnLength: true,
+              ctnWidth: true,
+              ctnHeight: true,
+            },
+          },
         },
         orderBy: [{ productId: "asc" }],
       },
@@ -277,7 +300,31 @@ async function prepareQuoteItems(input: QuoteFormInput) {
   const offerIds = input.selections.map((selection) => selection.offerId);
   const offers = await prisma.supplierOffer.findMany({
     where: { id: { in: offerIds } },
-    include: { product: true },
+    select: {
+      id: true,
+      productId: true,
+      factoryName: true,
+      purchasePrice: true,
+      currency: true,
+      moq: true,
+      ctnQty: true,
+      ctnLength: true,
+      ctnWidth: true,
+      ctnHeight: true,
+      product: {
+        include: {
+          params: {
+            select: {
+              paramKey: true,
+              rawValue: true,
+              normalizedValue: true,
+              unit: true,
+              confidence: true,
+            },
+          },
+        },
+      },
+    },
   });
   if (offers.length !== offerIds.length) {
     throw new Error("选择的供应商报价不存在。");
@@ -301,6 +348,17 @@ async function prepareQuoteItems(input: QuoteFormInput) {
 
     return { offer, quantity: selection.quantity, remark: selection.remark, salePrice };
   });
+}
+
+function mapProductParams(
+  params: Array<{ paramKey: string; rawValue: string; normalizedValue: string | null; unit: string | null }>,
+) {
+  return params.map((param) => ({
+    paramKey: param.paramKey,
+    rawValue: param.rawValue,
+    normalizedValue: param.normalizedValue,
+    unit: param.unit,
+  }));
 }
 
 function readSelectedProducts(formData: FormData): string[] {
