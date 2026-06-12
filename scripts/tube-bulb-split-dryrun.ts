@@ -424,7 +424,9 @@ function analyzeSheet(sheetName: string, rows: SheetRows, fileName: string): She
 
     if (priceValues.length >= threshold) {
       const signal = columnSignal(index, header, priceValues.length, uniqueSamples(priceValues));
-      if (!(isNonPriceHeader(header) && !isPriceHeader(header))) {
+      if (!header.trim()) {
+        // No header: numeric density alone is not enough to trust this as a price column.
+      } else if (!(isNonPriceHeader(header) && !isPriceHeader(header))) {
         priceColumns.push(signal);
         if (isRmbPriceHeader(header) || (filePriceHint === "rmb" && !isUsdPriceHeader(header))) {
           rmbPriceColumns.push(signal);
@@ -442,7 +444,9 @@ function analyzeSheet(sheetName: string, rows: SheetRows, fileName: string): She
   modelColumns.sort(sortSignal);
 
   const fallbackPrice = rmbPriceColumns.length === 0 && priceColumns.length > 0 && filePriceHint === "rmb";
-  const hasImportColumns = modelColumns.length > 0 && (rmbPriceColumns.length > 0 || fallbackPrice);
+  const selectedPriceColumn = rmbPriceColumns[0] ?? priceColumns[0];
+  const sameModelAndPriceColumn = modelColumns[0] && selectedPriceColumn && modelColumns[0].index === selectedPriceColumn.index;
+  const hasImportColumns = modelColumns.length > 0 && (rmbPriceColumns.length > 0 || fallbackPrice) && !sameModelAndPriceColumn;
 
   return {
     sheetName,
@@ -455,7 +459,7 @@ function analyzeSheet(sheetName: string, rows: SheetRows, fileName: string): She
     priceColumns,
     rmbPriceColumns,
     fallbackPrice,
-    skipReason: hasImportColumns ? null : "未检测到型号列或 RMB 价格列",
+    skipReason: hasImportColumns ? null : sameModelAndPriceColumn ? "型号列和价格列相同" : "未检测到型号列或 RMB 价格列",
   };
 }
 
@@ -543,7 +547,7 @@ function buildReport(plan: SplitImportPlan, results: FileDryRunResult[]): string
   const categorySummary = summarizeByCategory(sheetResults);
 
   const lines: string[] = [];
-  lines.push("# V2.17E — 价格列修复后灯管/球泡拆分导入 Dry Run");
+  lines.push("# V2.17F — 收紧价格列检测后灯管/球泡拆分导入 Dry Run");
   lines.push("");
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push("Mode: dry-run only, no database writes, no source file changes.");
@@ -795,7 +799,9 @@ function isLikelyModelHeader(header: string): boolean {
 
 function isRmbPriceHeader(header: string): boolean {
   const text = normalizeText(header);
-  return /rmb|人民币|含税|不含税|单价|价格|报价|出厂|工厂价|成本|采购|cny|元/i.test(text) && !isUsdPriceHeader(text);
+  if (isUsdPriceHeader(text)) return false;
+  if (isAccessoryPriceHeader(text)) return false;
+  return /rmb|人民币|含税|不含税|单价|价格|报价|出厂|工厂价|成本|采购|cny|元/i.test(text);
 }
 
 function isUsdPriceHeader(header: string): boolean {
@@ -809,17 +815,24 @@ function isPriceHeader(header: string): boolean {
 function isNonPriceHeader(header: string): boolean {
   const text = normalizeText(header);
   if (!text) return false;
-  if (/^(no\.?|序号|序\s*号|item\s*no\.?|sn|s\/n|编号)$/i.test(text)) return true;
-  if (/^(功率|w数|watt(age)?|power|电流|current|电压|voltage|尺寸|size|规格|spec|长度|length|直径|diameter|数量|qty|quantity|pcs|重量|weight|净重|毛重|体积|cbm|箱数|包装数|光通量|lumen|色温|cct|显指|cri|光效|pf|频率|hz)$/i.test(text)) {
+  if (/^[\d./-]+$/.test(text)) return true;
+  if (/^[\d一二三四五六七八九十]+月$/i.test(text)) return true;
+  if (/^(no\.?|序号|序\s*号|item\s*no\.?|sn|s\/n|编号|bom\s*no\.?|bom)$/i.test(text)) return true;
+  if (/^(功率|w数|watt(age)?|power|电流|current|电压|voltage|尺寸|size|规格|spec|长度|length|直径|diameter|数量|qty|quantity|pcs|灯珠颗数|灯珠数|led\s*qty|bead|重量|weight|净重|毛重|体积|cbm|箱数|包装|包装数|彩盒|纸箱|光通量|lumen|色温|cct|显指|cri|光效|pf|df|频率|hz)$/i.test(text)) {
     return true;
   }
   if (/^(产品名称|品名|product\s*name|名称|品类|类别|category|type|系列|series|颜色|color|材质|material|灯头|base|角度|angle|认证|cert)$/i.test(text)) {
     return true;
   }
-  if (/序号|产品名称|品名|产品规格|规格|功率|w数|watt|电流|current|电压|voltage|尺寸|size|长度|length|直径|diameter|数量|qty|quantity|pcs|光通量|lumen|色温|cct|显指|cri|光效|pf/i.test(text)) {
+  if (/序号|产品名称|品名|产品规格|规格|功率|w数|watt|电流|current|电压|voltage|尺寸|size|长度|length|直径|diameter|数量|qty|quantity|pcs|光通量|lumen|色温|cct|显指|cri|光效|pf|灯珠颗数|灯珠数|led\s*qty|bead|包装|彩盒|纸箱/i.test(text)) {
     return true;
   }
+  if (isAccessoryPriceHeader(text)) return true;
   return false;
+}
+
+function isAccessoryPriceHeader(header: string): boolean {
+  return /堵头|差价|配件|加价|附加|升级|差额|补差|运费差|包装差|物料差/i.test(normalizeText(header));
 }
 
 function priceHintFromText(text: string): "rmb" | "usd" | "unknown" {
