@@ -15,7 +15,7 @@ const prisma = new PrismaClient();
 
 const ROOT = "/Volumes/My Passport/AI 报价/各家工厂最新报价汇总";
 const PLAN_PATH = "docs/tube-bulb-split-import-plan.md";
-const REPORT_PATH = "docs/tube-bulb-split-apply-result.md";
+const DEFAULT_REPORT_PATH = "docs/tube-bulb-split-apply-result.md";
 const BACKUP_DIR = "backups";
 const PRICE_MIN = 0.01;
 const PRICE_MAX = 100_000;
@@ -24,6 +24,7 @@ const SCAN_CATEGORIES = ["球泡", "灯管"] as const;
 const SKIPPABLE_SHEET_NAME = /目录|index|cover|封面/i;
 
 const skipImages = process.argv.includes("--skip-images");
+const reportPath = getArgValue("--report") ?? DEFAULT_REPORT_PATH;
 const runStartedAt = new Date();
 
 type SplitCategory = (typeof SCAN_CATEGORIES)[number];
@@ -244,7 +245,7 @@ async function main() {
 
   await mkdir("docs", { recursive: true });
   await writeFile(
-    REPORT_PATH,
+    reportPath,
     buildReport({
       backupPath,
       beforeCounts,
@@ -265,12 +266,30 @@ async function main() {
         skippedNoSheet: results.filter((result) => result.skippedNoSheet).length,
         readFailures: results.filter((result) => result.readFailed).length,
         backupPath,
-        reportPath: REPORT_PATH,
+        reportPath,
       },
       null,
       2,
     ),
   );
+}
+
+function getArgValue(flag: string): string | null {
+  const equalsPrefix = `${flag}=`;
+  const equalsArg = process.argv.find((arg) => arg.startsWith(equalsPrefix));
+  if (equalsArg) {
+    return equalsArg.slice(equalsPrefix.length) || null;
+  }
+
+  const index = process.argv.indexOf(flag);
+  if (index >= 0) {
+    const value = process.argv[index + 1];
+    if (value && !value.startsWith("--")) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 async function buildDiskIndex(root: string): Promise<Map<string, DiskFile>> {
@@ -1049,7 +1068,7 @@ async function backupDatabase(): Promise<string> {
     .replace(/[-:]/g, "")
     .replace(/\..+$/, "")
     .replace("T", "-");
-  const backupPath = path.join(BACKUP_DIR, `dev-before-v2.17d-tube-bulb-${stamp}.sqlite`);
+  const backupPath = path.join(BACKUP_DIR, `dev-before-v2.17g-tube-bulb-${stamp}.sqlite`);
   await copyFile("prisma/dev.db", backupPath);
   return backupPath;
 }
@@ -1140,7 +1159,7 @@ function buildReport({
   const pathNotes = results.filter((result) => result.candidate.pathNote);
 
   const lines: string[] = [
-    "# V2.17D — 灯管/球泡拆分导入 Apply Result",
+    "# V2.17G — 灯管/球泡拆分导入 Apply Result",
     "",
     `Generated: ${new Date().toISOString()}`,
     "Mode: apply",
