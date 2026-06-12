@@ -176,12 +176,13 @@ Phase 1 and Phase 2 may be done together.
 | V3.0C | Batch 2 参数提取（吸顶灯/筒灯/三防灯/磁吸灯/净化灯/镜前灯/防潮灯） | ✓ |
 | V3.0D | 剩余 12 品类参数提取（灯丝灯/轨道灯/橱柜灯/太阳能壁灯等） | ✓ |
 | V2.14 Batch 3 | 批量导入第三批（风扇灯/工作灯/G4G9 + 剩余补导品类） | ✓ |
+| V3.0E | Batch 3 参数提取（风扇灯/工作灯/G4G9 + 剩余补导品类） | ✓ |
 
 ### Current Data
 
 - Products: 10,970 across 29 categories
 - Supplier offers: 11,990
-- Product params: 31,923 (覆盖 6,782 产品 / 26 参数品类，high 10,572 + medium 21,351)
+- Product params: 35,443 (覆盖 7,874 产品 / 29 参数品类，high 11,569 + medium 23,874)
 - Product images: 7,377 (67% coverage)
 - Imported from 563 source files with active supplier offers (1,097 My Passport file records)
 - CTN coverage: ctn_qty 2,813 / L×W×H 1,787 out of 11,990 offers
@@ -547,4 +548,4 @@ None. Pending next task assignment.
 
 1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
 2. 3,593 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行）
-3. Batch 3 新增/补导产品尚未跑 V3.0E 参数提取；风扇灯、工作灯、G4G9 等新品类暂无 product_params
+3. V3.0E 已让 29 个品类全部进入 product_params 体系；剩余缺参数产品主要受 DB 字段文本缺失限制

@@ -391,6 +391,77 @@ describe("V3.0D remaining category parameter extraction", () => {
   });
 });
 
+describe("V3.0E Batch 3 new category parameter extraction", () => {
+  test("extracts fan light power, lumens, material, voltage, and color", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "风扇灯",
+        remark:
+          "Product Details: Size:φ500mm Color:black Material:PC+PS+HIPS Motor Power:20W Lamp power:48W Lumen:2200LM±10% Voltage：100-265V 433 Remote Control Stepless dimming",
+      }),
+      "风扇灯" as never,
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts" }),
+        expect.objectContaining({ paramKey: "lumens", normalizedValue: "2200" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "PC+PS+HIPS" }),
+        expect.objectContaining({ paramKey: "voltage", normalizedValue: "100-265V" }),
+        expect.objectContaining({ paramKey: "color", normalizedValue: "black" }),
+      ]),
+    );
+    expect(params.some((param) => param.paramKey === "cct")).toBe(false);
+  });
+
+  test("extracts work light optical and electrical fields", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "工作灯",
+        remark:
+          "灯体尺寸 Size (mm): 115*110*27 描述 Description: Material: Aluminium body +Plastic cover+Iron bracket View angle:120° Color Temp: 3000k/4000k /6000k 标称功率Wattage (±10%）: 20w 电压Voltage/Hz: AC220-240V 50/60Hz 显指CRI: >80 光效Lumens (±10%）: 90LM/W Warranty: 2 years",
+      }),
+      "工作灯" as never,
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "20" }),
+        expect.objectContaining({ paramKey: "voltage", normalizedValue: "AC220-240V" }),
+        expect.objectContaining({ paramKey: "cri", normalizedValue: "Ra80" }),
+        expect.objectContaining({ paramKey: "luminous_efficacy", normalizedValue: "90" }),
+        expect.objectContaining({ paramKey: "beam_angle", normalizedValue: "120" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "3000" }),
+        expect.objectContaining({ paramKey: "warranty", normalizedValue: "2" }),
+      ]),
+    );
+  });
+
+  test("extracts G4G9 labeled base and structured light fields", () => {
+    const params = extractProductParamsForTest(
+      product({
+        category: "G4G9",
+        productName: "LED G9 Lamp",
+        modelNo: "G9 3W",
+        remark:
+          "Rated wattage(W): 3 Lumen [lm]: 3000K=330LM 4000K=350LM 6500K=350LM CRI: Ra>80 CCT[K]: 2700K 3000K 4000K 6500K Base: G9 Material: thermal conductive plastic",
+      }),
+      "G4G9" as never,
+    );
+
+    expect(params).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paramKey: "watts", normalizedValue: "3" }),
+        expect.objectContaining({ paramKey: "lumens", normalizedValue: "330" }),
+        expect.objectContaining({ paramKey: "cri", normalizedValue: "Ra80" }),
+        expect.objectContaining({ paramKey: "cct", normalizedValue: "2700" }),
+        expect.objectContaining({ paramKey: "base", normalizedValue: "G9" }),
+        expect.objectContaining({ paramKey: "material", normalizedValue: "thermal conductive plastic" }),
+      ]),
+    );
+  });
+});
+
 describe("V2.14 Batch import category mapping", () => {
   test("maps Batch 3 CSV category names to DB category names", () => {
     expect(resolveCategory("LED橱柜灯")).toBe("橱柜灯");
