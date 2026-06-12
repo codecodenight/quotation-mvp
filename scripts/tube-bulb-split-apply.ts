@@ -760,12 +760,14 @@ function analyzeSheet(sheetName: string, rows: SheetRows, fileName: string): She
 
     if (priceValues.length >= threshold) {
       const signal = columnSignal(index, header, priceValues.length, priceSamples);
-      priceColumns.push(signal);
-      if (isUsdPriceHeader(header) || filePriceHint === "usd") {
-        usdPriceColumns.push(signal);
-      }
-      if (isRmbPriceHeader(header) || (filePriceHint === "rmb" && !isUsdPriceHeader(header))) {
-        rmbPriceColumns.push(signal);
+      if (!(isNonPriceHeader(header) && !isPriceHeader(header))) {
+        priceColumns.push(signal);
+        if (isUsdPriceHeader(header) || filePriceHint === "usd") {
+          usdPriceColumns.push(signal);
+        }
+        if (isRmbPriceHeader(header) || (filePriceHint === "rmb" && !isUsdPriceHeader(header))) {
+          rmbPriceColumns.push(signal);
+        }
       }
     }
 
@@ -1518,6 +1520,22 @@ function isPriceHeader(header: string): boolean {
   return isRmbPriceHeader(header) || isUsdPriceHeader(header) || /price|金额|合计/i.test(normalizeText(header));
 }
 
+function isNonPriceHeader(header: string): boolean {
+  const text = normalizeText(header);
+  if (!text) return false;
+  if (/^(no\.?|序号|序\s*号|item\s*no\.?|sn|s\/n|编号)$/i.test(text)) return true;
+  if (/^(功率|w数|watt(age)?|power|电流|current|电压|voltage|尺寸|size|规格|spec|长度|length|直径|diameter|数量|qty|quantity|pcs|重量|weight|净重|毛重|体积|cbm|箱数|包装数|光通量|lumen|色温|cct|显指|cri|光效|pf|频率|hz)$/i.test(text)) {
+    return true;
+  }
+  if (/^(产品名称|品名|product\s*name|名称|品类|类别|category|type|系列|series|颜色|color|材质|material|灯头|base|角度|angle|认证|cert)$/i.test(text)) {
+    return true;
+  }
+  if (/序号|产品名称|品名|产品规格|规格|功率|w数|watt|电流|current|电压|voltage|尺寸|size|长度|length|直径|diameter|数量|qty|quantity|pcs|光通量|lumen|色温|cct|显指|cri|光效|pf/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 function priceHintFromText(text: string): "rmb" | "usd" | "unknown" {
   if (/fob|usd|美金|美元/i.test(text)) return "usd";
   if (/核价|rmb|人民币|含税|不含税|cny|采购价|工厂价|报价|价格/i.test(text)) return "rmb";
@@ -1535,6 +1553,9 @@ function columnSignal(index: number, header: string, count: number, samples: str
 }
 
 function sortSignal(a: ColumnSignal, b: ColumnSignal): number {
+  const aPrice = isPriceHeader(a.header) ? 1 : 0;
+  const bPrice = isPriceHeader(b.header) ? 1 : 0;
+  if (aPrice !== bPrice) return bPrice - aPrice;
   return b.count - a.count || a.index - b.index;
 }
 

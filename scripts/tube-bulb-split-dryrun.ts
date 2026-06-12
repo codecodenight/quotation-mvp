@@ -424,9 +424,11 @@ function analyzeSheet(sheetName: string, rows: SheetRows, fileName: string): She
 
     if (priceValues.length >= threshold) {
       const signal = columnSignal(index, header, priceValues.length, uniqueSamples(priceValues));
-      priceColumns.push(signal);
-      if (isRmbPriceHeader(header) || (filePriceHint === "rmb" && !isUsdPriceHeader(header))) {
-        rmbPriceColumns.push(signal);
+      if (!(isNonPriceHeader(header) && !isPriceHeader(header))) {
+        priceColumns.push(signal);
+        if (isRmbPriceHeader(header) || (filePriceHint === "rmb" && !isUsdPriceHeader(header))) {
+          rmbPriceColumns.push(signal);
+        }
       }
     }
 
@@ -541,7 +543,7 @@ function buildReport(plan: SplitImportPlan, results: FileDryRunResult[]): string
   const categorySummary = summarizeByCategory(sheetResults);
 
   const lines: string[] = [];
-  lines.push("# V2.17C — 灯管/球泡拆分导入 Dry Run");
+  lines.push("# V2.17E — 价格列修复后灯管/球泡拆分导入 Dry Run");
   lines.push("");
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push("Mode: dry-run only, no database writes, no source file changes.");
@@ -582,7 +584,7 @@ function buildReport(plan: SplitImportPlan, results: FileDryRunResult[]): string
   lines.push("|---|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---|");
   for (const sheet of sheetResults) {
     lines.push(
-      `| ${escapeMd(sheet.resolvedRelativePath)} | ${sheet.category} | ${escapeMd(sheet.factory)} | ${escapeMd(sheet.sheetName)} | ${sheet.status} | ${sheet.headerRow ?? "-"} | ${escapeMd(sheet.modelColumn)} | ${escapeMd(sheet.priceColumn)} | ${sheet.validRows} | ${sheet.skippedRows} | ${sheet.newProducts} | ${sheet.newOffers} | ${sheet.updatedOffers} | ${sheet.duplicateOffers} | ${escapeMd(formatReasonCounts(sheet.skippedReasons))} |`,
+      `| ${escapeMd(sheet.resolvedRelativePath)} | ${sheet.category} | ${escapeMd(sheet.factory)} | ${escapeMd(sheet.sheetName)} | ${sheet.status} | ${sheet.headerRow ?? "-"} | ${escapeMd(sheet.modelColumn)} | ${escapeMd(formatPriceColumnForReport(sheet.priceColumn))} | ${sheet.validRows} | ${sheet.skippedRows} | ${sheet.newProducts} | ${sheet.newOffers} | ${sheet.updatedOffers} | ${sheet.duplicateOffers} | ${escapeMd(formatReasonCounts(sheet.skippedReasons))} |`,
     );
   }
   lines.push("");
@@ -804,6 +806,22 @@ function isPriceHeader(header: string): boolean {
   return isRmbPriceHeader(header) || isUsdPriceHeader(header) || /price|金额|合计/i.test(normalizeText(header));
 }
 
+function isNonPriceHeader(header: string): boolean {
+  const text = normalizeText(header);
+  if (!text) return false;
+  if (/^(no\.?|序号|序\s*号|item\s*no\.?|sn|s\/n|编号)$/i.test(text)) return true;
+  if (/^(功率|w数|watt(age)?|power|电流|current|电压|voltage|尺寸|size|规格|spec|长度|length|直径|diameter|数量|qty|quantity|pcs|重量|weight|净重|毛重|体积|cbm|箱数|包装数|光通量|lumen|色温|cct|显指|cri|光效|pf|频率|hz)$/i.test(text)) {
+    return true;
+  }
+  if (/^(产品名称|品名|product\s*name|名称|品类|类别|category|type|系列|series|颜色|color|材质|material|灯头|base|角度|angle|认证|cert)$/i.test(text)) {
+    return true;
+  }
+  if (/序号|产品名称|品名|产品规格|规格|功率|w数|watt|电流|current|电压|voltage|尺寸|size|长度|length|直径|diameter|数量|qty|quantity|pcs|光通量|lumen|色温|cct|显指|cri|光效|pf/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 function priceHintFromText(text: string): "rmb" | "usd" | "unknown" {
   if (/fob|usd|美金|美元/i.test(text)) return "usd";
   if (/核价|rmb|人民币|含税|不含税|cny|采购价|工厂价|报价|价格/i.test(text)) return "rmb";
@@ -815,6 +833,9 @@ function columnSignal(index: number, header: string, count: number, samples: str
 }
 
 function sortSignal(a: ColumnSignal, b: ColumnSignal): number {
+  const aPrice = isPriceHeader(a.header) ? 1 : 0;
+  const bPrice = isPriceHeader(b.header) ? 1 : 0;
+  if (aPrice !== bPrice) return bPrice - aPrice;
   return b.count - a.count || a.index - b.index;
 }
 
@@ -894,6 +915,11 @@ function formatColumnSignal(signal: ColumnSignal | undefined): string {
   if (!signal) return "-";
   const header = signal.header ? ` ${signal.header}` : "";
   return `${signal.letter}${header} (${signal.count})`;
+}
+
+function formatPriceColumnForReport(priceColumn: string): string {
+  if (!priceColumn || priceColumn === "-") return priceColumn;
+  return isPriceHeader(priceColumn) ? priceColumn : `${priceColumn} ⚠️无价格关键词`;
 }
 
 function addReason(map: Map<string, number>, reason: string, count: number) {
