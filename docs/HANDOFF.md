@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-12
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0C / V3.0E
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0C / V3.0F / V2.17G
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V3.0E)
+## Current State (after V3.0F / V2.17G)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -22,21 +22,23 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Price version tracking (V2.10): import upsert by `product_id + factory_name` — update price + write `price_history` instead of creating duplicate offers
 - Multi-price parser (V2.11): cells like `3CCT:9 12CCT:10.5` split into separate variant products/offers with suffix
 - Image backfill round 2 (V2.12): rowRadius 1→3 + generated model component matching; 1,087→1,119 products with images
-- Structured parameter extraction (V3.0A-E): `product_params` key-value table with raw_value, normalized_value, unit, source_field, confidence
+- Structured parameter extraction (V3.0A-F): `product_params` key-value table with raw_value, normalized_value, unit, source_field, confidence; 31 categories all have params
 - Product library param filters + tags (V4.0A): category dropdown, watts range, IP dropdown; product cards show param badges with confidence coloring; `product-param-display.ts` reusable formatter
 - Quotes + product library param enhancement (V4.0B): quotes page category/watts/IP/CCT filters + param tags in search results and selected items; product library CCT filter + `<details>` expandable full param table; shared `product-filters.ts` module eliminates duplication
 - Quote Product Details from params (V4.0C): `product-details-builder.ts` generates stable English spec lines (Power/CCT/IP/Size/Material/...) from `product_params`; ≥2 valid lines → use params, otherwise fallback to remark+size; size dedup when `size_display` exists; preview, export, and history detail all share the same path
+- Tube/bulb split import with price column audit (V2.17): mixed 球泡/灯管 files classified by sheet content, imported with hardened price column detection; `isNonPriceHeader()` blocklist + `isPriceHeader()` semantic priority + model==price same-column rejection + empty-header exclusion
 
-### Data (after V3.0E)
-- Products: 10,970 across 29 categories (+1,691 from Batch 3)
-- Supplier offers: 11,990 (+2,077 new, 952 price updates via upsert from Batch 3)
-- Files (My Passport): 1,097 (992 before Batch 3 + 105 newly registered)
-- Price history: 8,198 records
-- Product images: 7,377 products have images (67% coverage, +1,567 from Batch 3)
-- Product params: 35,443 (29 parameter categories; V3.0E inserted 12,003 params for 3,306 target products; 7,874 products with params total; high 11,569 + medium 23,874)
-- Batch 1 categories growth: 投光灯 16→444, 面板灯 69→886, 线条灯 38→1,119, 路灯 15→197, 灯带 21→383
+### Data (after V3.0F / V2.17G)
+- Products: 11,236 across 31 categories (29 from Batch 1-3 + 球泡 expanded 151→341, 灯管 expanded 8→84)
+- Supplier offers: 12,320
+- Files (My Passport): 1,097+
+- Price history: 9,634 records
+- Product images: 7,563 products have images
+- Product params: 37,049 (31 categories; V3.0F added 1,606 params for 球泡 341/341 + 灯管 83/84)
+- Batch 1 categories growth: 投光灯 16→444, 面板灯 69→886, 线条灯 38→1,123, 路灯 15→197, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
-- Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→85, G4G9 0→51, 太阳能壁灯 87→555, 壁灯 27→290, 橱柜灯 134→204, 线条灯 1,119→1,123
+- Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→85, G4G9 0→51, 太阳能壁灯 87→555, 壁灯 27→290, 橱柜灯 134→204
+- Tube/bulb split growth: 球泡 151→341 (+190), 灯管 8→84 (+76)
 
 ### Data Sources on Disk (reorganized 2026-06-11)
 User reorganized the external hard drive from a flat structure (~60 top-level dirs) to a hierarchical structure:
@@ -134,6 +136,12 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - All remaining 477 file records have valid paths on current drive structure
 - Cleanup report: `docs/stale-files-cleanup-report.md`
 
+### Price column detection hardening (V2.17E-F)
+- V2.17D first attempt had systematic price column misdetection: `No./序号/功率/灯珠颗数` columns outranked real price columns by numeric density
+- Fix: `isNonPriceHeader()` blocklist (序号/功率/电流/尺寸/灯珠颗数/数量 etc.) + `isPriceHeader()` semantic priority in `sortSignal()` + model==price same-column rejection + empty-header column exclusion + surcharge column exclusion (堵头/差价/配件)
+- Result: 86/91 sheets fixed; remaining sheets correctly skipped as no-import-columns
+- Lesson: any future import script must use semantic price column detection, not just numeric density
+
 ---
 
 ## Version History (this session)
@@ -173,15 +181,22 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V3.0D | 剩余 12 品类参数提取 | 灯丝灯/轨道灯/橱柜灯/太阳能壁灯/庭院灯/应急灯/地埋灯/壁灯/台灯/灯管/Highbay/皮线灯 1,116 产品 → 5,165 条参数（覆盖 1,083 产品）；product_params 26,758→31,923；修正 `5m/50珠` 尺寸误提取和 `LUMEN: 1400LM` 光效误提取 |
 | V2.14 B3 | 批量导入 Batch 3 | 115 文件（105 成功，10 无可导入 sheet）；+1,691 产品 +2,077 offers +1,567 图片 +952 价格历史；新增风扇灯/工作灯/G4G9；LED橱柜灯→橱柜灯、市电壁灯→壁灯、支架→线条灯 |
 | V3.0E | Batch 3 参数提取 | 16 品类 4,092 产品 → 12,003 条参数（覆盖 3,306 产品）；新增风扇灯/工作灯/G4G9 extractor + `extractLabeledBase`；product_params 31,923→35,443；29 品类全部有参数 |
+| V2.17 | 灯管/球泡分类 | 27 文件只读分类：12 球泡 / 9 灯管 / 3 混合 / 3 未知；`scripts/classify-tube-bulb.ts` 关键词匹配 + sheet 级分类 |
+| V2.17B | 拆分导入计划 | 29 项导入计划（含 sheet 白名单）；佛山凯徽跳过、T5 一体化支架归灯管、嘉家旺文件名修复 |
+| V2.17C | 拆分导入 dry-run | 96 sheets / 2,101 valid rows 预估；`scripts/tube-bulb-split-dryrun.ts` |
+| V2.17D | 拆分导入 apply（有价格列误判） | +397 产品 +462 offers — 但 86/91 sheets 价格列误判（`No./序号/灯珠颗数` 当价格）；已回滚 |
+| V2.17E | 价格列修复 round 1 | `isNonPriceHeader()` 黑名单 + `sortSignal()` 语义优先 + dry-run ⚠️ 标记；DB 回滚到 V2.17D 前 |
+| V2.17F | 价格列修复 round 2 | 灯珠颗数入黑名单 + model==price 同列拒绝 + 空表头列排除 + 差价/配件列排除；报告 0 个 ⚠️ |
+| V2.17G | 拆分导入 apply（修正后） | +266 产品 +330 offers +1,436 price_history；球泡 151→341、灯管 8→84；价格列全部有语义关键词 |
+| V3.0F | 球泡/灯管参数提取 | 球泡 341/341（100%）+ 灯管 83/84（98.8%）→ +1,606 params；product_params 35,443→37,049；增强 `extractBulbParams` + `extractTubeLightParams` |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **灯管/球泡拆品类** — 合力目录下文件需按内容拆到球泡或灯管再导入
-2. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
-3. **V4.1 参数筛选增强** — 可考虑把更多 param_key 暴露到产品库/报价筛选（例如 base、beam_angle、material）
+1. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
+2. **V4.1 参数筛选增强** — 可考虑把更多 param_key 暴露到产品库/报价筛选（例如 base、beam_angle、material）
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -198,6 +213,10 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V3.0D — 剩余 12 品类参数提取~~ ✅ 12 品类 1,116 产品 → 5,165 条参数，product_params 31,923，26 品类全部有参数
 - ~~V2.14 Batch 3~~ ✅ 115 文件（105 成功），+1,691 产品 +2,077 offers +1,567 图片；新增风扇灯/工作灯/G4G9
 - ~~V3.0E — Batch 3 参数提取~~ ✅ 16 品类 4,092 产品 → 12,003 条参数，product_params 35,443，29 品类全部有参数
+- ~~V2.17 — 灯管/球泡分类~~ ✅ 27 文件分类：12 球泡 / 9 灯管 / 3 混合 / 1 跳过
+- ~~V2.17E-F — 价格列检测修复~~ ✅ 系统性误判修复，两轮迭代，报告 0 个 ⚠️
+- ~~V2.17G — 拆分导入 apply~~ ✅ commit 53dba12 — +266 产品 +330 offers；球泡 341、灯管 84
+- ~~V3.0F — 球泡/灯管参数提取~~ ✅ commit 1dccea0 — 球泡 100%、灯管 98.8%；product_params 37,049
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -205,7 +224,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.14 Batch 3 自动检测成功率 91.3%（105/115），10 个文件无可导入 sheet，0 读取失败
 - V2.14 Batch 3 新建风扇灯/工作灯/G4G9 三个品类，品类映射按计划执行：LED橱柜灯→橱柜灯、市电壁灯→壁灯、支架→线条灯
 - V3.0E 新品类覆盖：风扇灯 237/264（89.8%），工作灯 66/85（77.6%），G4G9 51/51（100%）
-- V3.0E 让 29 个品类全部有 product_params；后续数据价值主要在 UI 筛选暴露和少量源文本缺失补录
+- V3.0F 球泡 100% 覆盖（watts 95.9%/base 62.5%/size 54.3%），灯管 98.8% 覆盖（watts 82.1%/voltage 66.7%/lumens 48.8%）
 - V3.0B 验证了 Batch 1 导入质量：remark 字段高度结构化（投光灯/路灯 Key:Value 格式），参数覆盖率 86%
 - V3.0C 覆盖 2,773/4,809（57.7%）目标产品；筒灯/三防灯/防潮灯覆盖较好，净化灯低覆盖主要因为大多数新增记录没有 remark/size
 - `extractCct`/`extractPf`/`extractLmW` 是可复用的通用函数，Batch 2 品类可直接用
@@ -221,6 +240,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V4.0C 改 `prepareQuoteItems` 和 `getQuoteDetail` 为 explicit select，连带消除 `price_updated_at` 脏数据风险
 - V3.0D 让全部 26 品类进入 `product_params` 体系；灯丝灯 100% 覆盖，壁灯/Highbay 100% 覆盖，皮线灯只提取长度和材质，不把珠数当宽度
 - V3.0D 修正了通用光效提取：`LUMEN: 1400LM` 只作为 lumens，不再误提取为 luminous_efficacy
+- V2.17D 价格列误判教训：纯数字密度排序不可靠，`No./序号/灯珠颗数` 等列数字密度高于真正价格列；必须用语义优先 + 黑名单过滤
+- V2.17G 产品目录-价格-2024.4.14.xlsx 12/18 sheets 因 model==price 同列或无价格列被正确跳过，宁可少导不污染价格
 
 ### Not Now
 - PDF parsing (high effort, uncertain value)
