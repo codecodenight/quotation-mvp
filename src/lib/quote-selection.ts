@@ -1,3 +1,5 @@
+import type { ProductParamDisplay } from "@/lib/product-param-display";
+
 export type QuoteSelectionOffer = {
   id: string;
   factoryName: string;
@@ -18,6 +20,7 @@ export type QuoteSelectionProduct = {
   size: string | null;
   remark: string | null;
   supplierOffers: QuoteSelectionOffer[];
+  displayParams?: ProductParamDisplay[];
 };
 
 export type SelectedQuoteItem = {

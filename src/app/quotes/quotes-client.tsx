@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
 import { formatDateTime, formatMoney } from "@/lib/format";
+import { formatParamLabel, sortDisplayParams } from "@/lib/product-param-display";
 import { buildQuoteHealth, type QuoteProductHealth } from "@/lib/quote-health";
 import {
   createDefaultQuoteSearchFilters,
@@ -30,7 +31,12 @@ export type QuoteHistoryRow = QuoteSearchResult;
 
 export type QuoteFilters = {
   search: string;
+  category: string;
   factory: string;
+  minWatts: string;
+  maxWatts: string;
+  ip: string;
+  cct: string;
   error: string;
 };
 
@@ -39,6 +45,9 @@ type QuotesClientProps = {
   shouldLoadProducts: boolean;
   products: QuoteProductOption[];
   quotes: QuoteHistoryRow[];
+  categories: { category: string; count: number }[];
+  ipOptions: { value: string; count: number }[];
+  cctOptions: { value: string; count: number }[];
 };
 
 const inputClass =
@@ -48,7 +57,15 @@ const selectClass =
 const SELECTED_ITEMS_STORAGE_KEY = "quotation-mvp:quote-selected-items:v1";
 const QUOTE_PARAMS_STORAGE_KEY = "quotation-mvp:quote-params:v1";
 
-export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: QuotesClientProps) {
+export function QuotesClient({
+  filters,
+  shouldLoadProducts,
+  products,
+  quotes,
+  categories,
+  ipOptions,
+  cctOptions,
+}: QuotesClientProps) {
   const [mode, setMode] = useState<"editing" | "previewing">("editing");
   const [preview, setPreview] = useState<QuotePreviewData | null>(null);
   const [showProblemRowsOnly, setShowProblemRowsOnly] = useState(false);
@@ -436,23 +453,63 @@ export function QuotesClient({ filters, shouldLoadProducts, products, quotes }: 
       ) : null}
 
       <section className="mb-4 rounded-md border border-line bg-paper p-4 shadow-panel">
-        <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto]">
-          <Field label="搜索产品">
-            <input
-              name="search"
-              defaultValue={filters.search}
-              placeholder="产品名 / 款号 / 类目"
-              className={inputClass}
-            />
-          </Field>
-          <Field label="工厂">
-            <input name="factory" defaultValue={filters.factory} placeholder="工厂名" className={inputClass} />
-          </Field>
-          <div className="flex items-end">
-            <button className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white">
-              <Search className="h-4 w-4" aria-hidden="true" />
-              筛选
-            </button>
+        <form className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
+            <Field label="搜索产品">
+              <input
+                name="search"
+                defaultValue={filters.search}
+                placeholder="产品名 / 款号 / 类目"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="品类">
+              <select name="category" defaultValue={filters.category} className={selectClass}>
+                <option value="">全部品类</option>
+                {categories.map((category) => (
+                  <option key={category.category} value={category.category}>
+                    {category.category} ({category.count})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="工厂">
+              <input name="factory" defaultValue={filters.factory} placeholder="工厂名" className={inputClass} />
+            </Field>
+            <div className="flex items-end">
+              <button className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white">
+                <Search className="h-4 w-4" aria-hidden="true" />
+                筛选
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <Field label="最小功率">
+              <input name="minWatts" defaultValue={filters.minWatts} placeholder="10" className={inputClass} />
+            </Field>
+            <Field label="最大功率">
+              <input name="maxWatts" defaultValue={filters.maxWatts} placeholder="50" className={inputClass} />
+            </Field>
+            <Field label="IP">
+              <select name="ip" defaultValue={filters.ip} className={selectClass}>
+                <option value="">不限</option>
+                {ipOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="色温">
+              <select name="cct" defaultValue={filters.cct} className={selectClass}>
+                <option value="">不限</option>
+                {cctOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}K ({option.count})
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
         </form>
       </section>
@@ -568,6 +625,7 @@ function SelectedProductsTable({
                   <td className="min-w-56 px-3 py-3">
                     <div className="font-semibold text-ink">{product.productName}</div>
                     <div className="mt-1 text-xs text-stone-600">{product.modelNo ?? "-"}</div>
+                    <QuoteParamTags product={product} />
                   </td>
                   <td className="min-w-72 px-3 py-3">
                     <select
@@ -754,6 +812,31 @@ function ProductSelectionTable({
         </table>
       </div>
     </section>
+  );
+}
+
+function QuoteParamTags({ product }: { product: QuoteProductOption }) {
+  const params = product.displayParams ?? [];
+  const tags = sortDisplayParams(params)
+    .map((param) => formatParamLabel(param))
+    .filter((label) => label.length > 0)
+    .slice(0, 6);
+
+  if (tags.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {tags.map((label, index) => (
+        <span
+          key={`${label}-${index}`}
+          className="rounded-sm border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-xs font-medium text-stone-600"
+        >
+          {label}
+        </span>
+      ))}
+    </div>
   );
 }
 
