@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -7,6 +8,7 @@ import * as XLSX from "xlsx";
 const ROOT = "/Volumes/My Passport/AI 报价/各家工厂最新报价汇总";
 const CSV_PATH = "docs/v2.13a-import-candidates.csv";
 const DEFAULT_REPORT_PATH = "docs/tube-bulb-classify-report.md";
+const DEFAULT_PLAN_PATH = "docs/tube-bulb-split-import-plan.md";
 
 export type TubeBulbCategory = "球泡" | "灯管" | "混合" | "未知";
 
@@ -26,7 +28,9 @@ export type SheetClassification = {
 };
 
 type Candidate = {
+  csvRelativePath: string;
   relativePath: string;
+  pathResolutionNote: string | null;
   factory: string;
   estimatedProducts: number;
 };
@@ -43,6 +47,19 @@ type FileClassification = {
 
 type CsvRow = Record<string, string>;
 
+type ResolvedRelativePath = {
+  relativePath: string;
+  note: string | null;
+};
+
+type ImportPlanItem = {
+  relativePath: string;
+  factory: string;
+  category: "球泡" | "灯管";
+  sheets: string[];
+  reason: string;
+};
+
 const FILE_BULB_REGEX = /球泡|A泡|T泡|G泡|异[形性]泡|C3[57]|GU10|GU5\.?3|蜡烛|玉兰花|PAR|LED灯泡|bulb/i;
 const FILE_TUBE_REGEX = /灯管|T8|T5|TUBE|一体化支架/i;
 
@@ -52,6 +69,7 @@ const TUBE_REGEX = /灯管|日光灯管|一体化支架|\bT[58]\b|\bTUBE\b/i;
 
 async function main() {
   const reportPath = readArg("--report") ?? DEFAULT_REPORT_PATH;
+  const planPath = readArg("--plan") ?? DEFAULT_PLAN_PATH;
   const candidates = await loadCandidates();
   const results: FileClassification[] = [];
 
@@ -60,10 +78,12 @@ async function main() {
   }
 
   await writeFile(reportPath, buildReport(results), "utf8");
+  await writeFile(planPath, buildSplitImportPlan(results), "utf8");
   console.log(
     JSON.stringify(
       {
         reportPath,
+        planPath,
         files: results.length,
         bulb: results.filter((result) => result.category === "球泡").length,
         tube: results.filter((result) => result.category === "灯管").length,
@@ -81,14 +101,27 @@ async function loadCandidates(): Promise<Candidate[]> {
   const rows = parseCsv(csvText);
   const [header, ...body] = rows;
   const records = body.map((row) => rowToRecord(header, row));
-  return records
+  const candidateInputs = records
     .filter((record) => normalizeText(record.category) === "灯管")
     .filter((record) => normalizeText(record.classification) === "likely-importable")
     .map((record) => ({
-      relativePath: normalizeText(record.path),
+      relativePath: normalizeCsvPath(record.path),
       factory: normalizeText(record.factory),
       estimatedProducts: Number(normalizeText(record.estimated_products)) || 0,
     }));
+
+  return Promise.all(
+    candidateInputs.map(async (candidate) => {
+      const resolved = await resolveCandidatePath(candidate.relativePath);
+      return {
+        csvRelativePath: candidate.relativePath,
+        relativePath: resolved.relativePath,
+        pathResolutionNote: resolved.note,
+        factory: candidate.factory,
+        estimatedProducts: candidate.estimatedProducts,
+      };
+    }),
+  );
 }
 
 async function analyzeCandidate(candidate: Candidate): Promise<FileClassification> {
@@ -289,6 +322,10 @@ function appendDetails(lines: string[], results: FileClassification[]) {
     if (result.readError) {
       lines.push(`- 读取错误：${md(result.readError)}`);
     }
+    if (result.candidate.pathResolutionNote) {
+      lines.push(`- 路径修正：${md(result.candidate.pathResolutionNote)}`);
+      lines.push(`- CSV 原路径：${md(result.candidate.csvRelativePath)}`);
+    }
     lines.push("");
     lines.push("| Sheet | 数据行 | 球泡命中 | 灯管命中 | 结论 | 依据 | 样本 |");
     lines.push("|---|---:|---:|---:|---|---|---|");
@@ -323,6 +360,160 @@ function appendImportAdvice(lines: string[], results: FileClassification[]) {
       lines.push(`| ${md(result.candidate.relativePath)} | 人工复核 | ${md(result.basis)} |`);
     } else {
       lines.push(`| ${md(result.candidate.relativePath)} | ${result.category} | ${md(result.basis)} |`);
+    }
+  }
+  lines.push("");
+}
+
+function buildSplitImportPlan(results: FileClassification[]): string {
+  const plan = buildPlanItems(results);
+  const mixedSheetCount = plan.mixed.flatMap((result) =>
+    result.sheets.filter((sheet) => sheet.category === "球泡" || sheet.category === "灯管"),
+  ).length;
+
+  const lines: string[] = [];
+  lines.push("# V2.17B — 灯管/球泡拆品类导入计划");
+  lines.push("");
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push("## 总览");
+  lines.push("");
+  lines.push("| 指标 | 值 |");
+  lines.push("|---|---:|");
+  lines.push(`| 分析文件 | ${results.length} |`);
+  lines.push(`| 球泡导入候选项 | ${plan.bulb.length} |`);
+  lines.push(`| 灯管导入候选项 | ${plan.tube.length} |`);
+  lines.push(`| 混合文件 | ${plan.mixed.length} |`);
+  lines.push(`| 混合拆分 sheet 数 | ${mixedSheetCount} |`);
+  lines.push(`| Skip 文件 | ${plan.skip.length} |`);
+  lines.push(`| 仍需人工确认 | ${plan.manual.length} |`);
+  lines.push("");
+
+  lines.push("## 人工确认结果已应用");
+  lines.push("");
+  lines.push("- 佛山凯徽 `2年质保，光效高点的询价单2023.10.31.xlsx`：skip，不导入。");
+  lines.push("- 合力 `T5一体化支架价格(1).xlsx`：归入灯管。");
+  lines.push("- 嘉家旺文件：以硬盘实际路径 `嘉家旺202404.xlsx` 为准，脚本通过去空格唯一匹配解析。");
+  lines.push("");
+
+  appendPlanSection(lines, "直接导入为球泡", plan.bulb);
+  appendPlanSection(lines, "直接导入为灯管", plan.tube);
+  appendMixedPlanSection(lines, plan.mixed);
+  appendSkipPlanSection(lines, plan.skip);
+  appendManualPlanSection(lines, plan.manual);
+
+  lines.push("## 下一步");
+  lines.push("");
+  lines.push("- 基于本计划更新 V2.14 导入脚本：按 `category` 拆为球泡/灯管。");
+  lines.push("- 对混合文件按 sheet 白名单拆分导入。");
+  lines.push("- 本计划不包含 dry-run，不写 DB，不导入。");
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+function buildPlanItems(results: FileClassification[]) {
+  const bulb: ImportPlanItem[] = [];
+  const tube: ImportPlanItem[] = [];
+  const mixed: FileClassification[] = [];
+  const skip: Array<{ relativePath: string; factory: string; reason: string }> = [];
+  const manual: Array<{ relativePath: string; factory: string; reason: string }> = [];
+
+  for (const result of results) {
+    const manualDecision = getManualDecision(result.candidate.relativePath);
+    if (manualDecision?.action === "skip") {
+      skip.push({ relativePath: result.candidate.relativePath, factory: result.candidate.factory, reason: manualDecision.reason });
+      continue;
+    }
+    if (manualDecision?.action === "category") {
+      const item = {
+        relativePath: result.candidate.relativePath,
+        factory: result.candidate.factory,
+        category: manualDecision.category,
+        sheets: importableSheetNames(result),
+        reason: manualDecision.reason,
+      };
+      (manualDecision.category === "球泡" ? bulb : tube).push(item);
+      continue;
+    }
+
+    if (result.category === "球泡" || result.category === "灯管") {
+      const item = {
+        relativePath: result.candidate.relativePath,
+        factory: result.candidate.factory,
+        category: result.category,
+        sheets: importableSheetNames(result),
+        reason: result.basis,
+      };
+      (result.category === "球泡" ? bulb : tube).push(item);
+      continue;
+    }
+    if (result.category === "混合") {
+      mixed.push(result);
+      for (const category of ["球泡", "灯管"] as const) {
+        const sheets = result.sheets.filter((sheet) => sheet.category === category).map((sheet) => sheet.sheetName);
+        if (sheets.length === 0) continue;
+        const item = {
+          relativePath: result.candidate.relativePath,
+          factory: result.candidate.factory,
+          category,
+          sheets,
+          reason: "混合文件按 sheet 拆分",
+        };
+        (category === "球泡" ? bulb : tube).push(item);
+      }
+      continue;
+    }
+
+    manual.push({ relativePath: result.candidate.relativePath, factory: result.candidate.factory, reason: result.basis });
+  }
+
+  return { bulb, tube, mixed, skip, manual };
+}
+
+function appendPlanSection(lines: string[], title: string, items: ImportPlanItem[]) {
+  lines.push(`## ${title}`);
+  lines.push("");
+  lines.push("| 文件 | 工厂 | Sheets | 分类依据 |");
+  lines.push("|---|---|---|---|");
+  for (const item of items) {
+    lines.push(`| ${md(item.relativePath)} | ${md(item.factory)} | ${md(item.sheets.join(", ") || "全部/待读取")} | ${md(item.reason)} |`);
+  }
+  lines.push("");
+}
+
+function appendMixedPlanSection(lines: string[], results: FileClassification[]) {
+  lines.push("## 混合文件拆分");
+  lines.push("");
+  lines.push("| 文件 | 工厂 | 球泡 Sheets | 灯管 Sheets |");
+  lines.push("|---|---|---|---|");
+  for (const result of results) {
+    lines.push(`| ${md(result.candidate.relativePath)} | ${md(result.candidate.factory)} | ${md(sheetNames(result, "球泡"))} | ${md(sheetNames(result, "灯管"))} |`);
+  }
+  lines.push("");
+}
+
+function appendSkipPlanSection(lines: string[], items: Array<{ relativePath: string; factory: string; reason: string }>) {
+  lines.push("## Skip 文件");
+  lines.push("");
+  lines.push("| 文件 | 工厂 | 理由 |");
+  lines.push("|---|---|---|");
+  for (const item of items) {
+    lines.push(`| ${md(item.relativePath)} | ${md(item.factory)} | ${md(item.reason)} |`);
+  }
+  lines.push("");
+}
+
+function appendManualPlanSection(lines: string[], items: Array<{ relativePath: string; factory: string; reason: string }>) {
+  lines.push("## 仍需人工确认");
+  lines.push("");
+  lines.push("| 文件 | 工厂 | 原因 |");
+  lines.push("|---|---|---|");
+  if (items.length === 0) {
+    lines.push("| - | - | 无 |");
+  } else {
+    for (const item of items) {
+      lines.push(`| ${md(item.relativePath)} | ${md(item.factory)} | ${md(item.reason)} |`);
     }
   }
   lines.push("");
@@ -387,12 +578,100 @@ function normalizeRows(rows: unknown[][]): string[][] {
   return rows.map((row) => row.map((cell) => normalizeText(cell)));
 }
 
+export function normalizeCsvPath(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
 function normalizeText(value: unknown): string {
   return String(value ?? "")
     .normalize("NFC")
     .replace(/\r?\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function resolveCandidatePath(relativePath: string): Promise<ResolvedRelativePath> {
+  const normalized = normalizeCsvPath(relativePath);
+  if (existsSync(path.join(ROOT, normalized))) {
+    return { relativePath: normalized, note: null };
+  }
+
+  const directory = path.posix.dirname(normalized);
+  const absoluteDirectory = path.join(ROOT, directory);
+  try {
+    const entries = await readdir(absoluteDirectory, { withFileTypes: true });
+    const availableRelativePaths = entries
+      .filter((entry) => entry.isFile())
+      .filter((entry) => !entry.name.startsWith(".") && !entry.name.startsWith("~$"))
+      .filter((entry) => /\.(xlsx|xls)$/i.test(entry.name))
+      .map((entry) => path.posix.join(directory, normalizeCsvPath(entry.name)));
+    return resolveRelativePath(normalized, availableRelativePaths);
+  } catch {
+    return { relativePath: normalized, note: null };
+  }
+}
+
+export function resolveRelativePath(relativePath: string, availableRelativePaths: string[]): ResolvedRelativePath {
+  const normalized = normalizeCsvPath(relativePath);
+  const normalizedAvailable = availableRelativePaths.map(normalizeCsvPath);
+  if (normalizedAvailable.includes(normalized)) {
+    return { relativePath: normalized, note: null };
+  }
+
+  const directory = path.posix.dirname(normalized);
+  const targetBase = path.posix.basename(normalized);
+  const targetExt = path.posix.extname(targetBase).toLowerCase();
+  const targetKey = whitespaceInsensitive(targetBase);
+  const matches = normalizedAvailable.filter((candidatePath) => {
+    return (
+      path.posix.dirname(candidatePath) === directory &&
+      path.posix.extname(candidatePath).toLowerCase() === targetExt &&
+      whitespaceInsensitive(path.posix.basename(candidatePath)) === targetKey
+    );
+  });
+
+  if (matches.length === 1) {
+    return {
+      relativePath: matches[0],
+      note: `CSV 路径不存在，按去空格唯一匹配到：${matches[0]}`,
+    };
+  }
+  if (matches.length > 1) {
+    return {
+      relativePath: normalized,
+      note: `CSV 路径不存在，去空格匹配到 ${matches.length} 个候选，需人工确认`,
+    };
+  }
+  return { relativePath: normalized, note: null };
+}
+
+function whitespaceInsensitive(value: string): string {
+  return normalizeCsvPath(value).replace(/\s+/g, "");
+}
+
+function getManualDecision(relativePath: string):
+  | { action: "skip"; reason: string }
+  | { action: "category"; category: "球泡" | "灯管"; reason: string }
+  | null {
+  const key = whitespaceInsensitive(relativePath);
+  if (key.includes("佛山凯徽/2年质保，光效高点的询价单2023.10.31.xlsx")) {
+    return { action: "skip", reason: "人工确认不用管，不导入" };
+  }
+  if (key.includes("合力/202604/T5一体化支架价格(1).xlsx")) {
+    return { action: "category", category: "灯管", reason: "人工确认归灯管" };
+  }
+  return null;
+}
+
+function importableSheetNames(result: FileClassification): string[] {
+  if (result.sheets.length === 0) {
+    return [];
+  }
+  const dataSheets = result.sheets.filter((sheet) => sheet.dataRows > 0).map((sheet) => sheet.sheetName);
+  return dataSheets.length > 0 ? dataSheets : result.sheets.map((sheet) => sheet.sheetName);
 }
 
 function parseCsv(text: string): string[][] {
@@ -462,7 +741,7 @@ function uniqueSamples(values: string[]): string[] {
 }
 
 function md(value: string): string {
-  return normalizeText(value).replaceAll("|", "\\|");
+  return normalizeCsvPath(value).replaceAll("|", "\\|");
 }
 
 function readArg(name: string): string | null {

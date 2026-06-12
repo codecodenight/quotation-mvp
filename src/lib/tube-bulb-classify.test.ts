@@ -3,6 +3,8 @@ import { describe, expect, test } from "vitest";
 import {
   classifyFileName,
   classifySheetRows,
+  normalizeCsvPath,
+  resolveRelativePath,
   summarizeFileCategory,
   type SheetClassification,
 } from "../../scripts/classify-tube-bulb";
@@ -59,5 +61,20 @@ describe("tube/bulb classification", () => {
 
     expect(summary.category).toBe("未知");
     expect(summary.basis).toContain("需人工确认");
+  });
+
+  test("preserves repeated spaces in CSV file paths", () => {
+    expect(normalizeCsvPath(" 光源/球泡灯管/嘉家旺/嘉家旺  202404.xlsx ")).toBe("光源/球泡灯管/嘉家旺/嘉家旺  202404.xlsx");
+  });
+
+  test("resolves a missing CSV path by unique whitespace-insensitive match in the same directory", () => {
+    const resolved = resolveRelativePath("光源/球泡灯管/嘉家旺/嘉家旺  202404.xlsx", [
+      "光源/球泡灯管/嘉家旺/嘉家旺整体报价23.04.18(1).xlsx",
+      "光源/球泡灯管/嘉家旺/嘉家旺202404.xlsx",
+      "光源/球泡灯管/合力/嘉家旺202404.xlsx",
+    ]);
+
+    expect(resolved.relativePath).toBe("光源/球泡灯管/嘉家旺/嘉家旺202404.xlsx");
+    expect(resolved.note).toContain("去空格唯一匹配");
   });
 });
