@@ -9,6 +9,13 @@ export type QuoteHealthOfferInput = {
   ctnHeight: string | null;
 };
 
+export type WarningTier = "customer" | "quote" | "logistics";
+
+export type CategorizedWarning = {
+  message: string;
+  tier: WarningTier;
+};
+
 export type QuoteHealthProductInput = {
   productName: string;
   modelNo: string | null;
@@ -21,11 +28,11 @@ export type QuoteHealthProductInput = {
 export type QuoteOfferHealth = {
   offerId: string;
   factoryName: string;
-  issues: string[];
+  issues: CategorizedWarning[];
 };
 
 export type QuoteProductHealth = {
-  productIssues: string[];
+  productIssues: CategorizedWarning[];
   offerIssues: QuoteOfferHealth[];
   totalIssueCount: number;
 };
@@ -47,42 +54,49 @@ export function buildQuoteHealth(product: QuoteHealthProductInput): QuoteProduct
   };
 }
 
-export function checkQuoteItemHealth(product: QuoteHealthProductInput, offer: QuoteHealthOfferInput): string[] {
+export function checkQuoteItemHealth(
+  product: QuoteHealthProductInput,
+  offer: QuoteHealthOfferInput,
+): CategorizedWarning[] {
   return [...buildProductIssues(product), ...buildOfferIssues(offer)];
 }
 
-function buildProductIssues(product: QuoteHealthProductInput): string[] {
-  const issues: string[] = [];
+function buildProductIssues(product: QuoteHealthProductInput): CategorizedWarning[] {
+  const issues: CategorizedWarning[] = [];
   const detailText = (product.remark || product.productName || "").trim();
   const modelNo = product.modelNo?.trim() ?? "";
 
   if (!detailText || (modelNo && detailText.toLowerCase() === modelNo.toLowerCase())) {
-    issues.push("Product Details 过短或重复");
+    issues.push(warning("Product Details 过短或重复", "customer"));
   }
   if (!product.size?.trim() && !product.hasSizeParam) {
-    issues.push("缺 Size");
+    issues.push(warning("缺 Size", "quote"));
   }
 
   return issues;
 }
 
-function buildOfferIssues(offer: QuoteHealthOfferInput): string[] {
-  const issues: string[] = [];
+function buildOfferIssues(offer: QuoteHealthOfferInput): CategorizedWarning[] {
+  const issues: CategorizedWarning[] = [];
 
   if (!isPositiveNumber(offer.purchasePrice)) {
-    issues.push("采购价异常");
+    issues.push(warning("采购价异常", "quote"));
   }
   if (offer.moq?.trim() && !/^[\d,]+/.test(offer.moq.trim())) {
-    issues.push("MOQ 可能不是数量");
+    issues.push(warning("MOQ 可能不是数量", "quote"));
   }
   if (!offer.ctnQty?.trim()) {
-    issues.push("缺 CTN Qty");
+    issues.push(warning("缺 CTN Qty", "logistics"));
   }
   if (!offer.ctnLength?.trim() || !offer.ctnWidth?.trim() || !offer.ctnHeight?.trim()) {
-    issues.push("缺 CTN L/W/H");
+    issues.push(warning("缺 CTN L/W/H", "logistics"));
   }
 
   return issues;
+}
+
+function warning(message: string, tier: WarningTier): CategorizedWarning {
+  return { message, tier };
 }
 
 function isPositiveNumber(value: string | number | { toString(): string }): boolean {

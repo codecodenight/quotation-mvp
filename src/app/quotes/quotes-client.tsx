@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Plus, RotateCcw, 
 
 import { formatDateTime, formatMoney } from "@/lib/format";
 import { formatParamLabel, sortDisplayParams } from "@/lib/product-param-display";
-import { buildQuoteHealth, type QuoteProductHealth } from "@/lib/quote-health";
+import { buildQuoteHealth, type CategorizedWarning, type QuoteProductHealth, type WarningTier } from "@/lib/quote-health";
 import {
   createDefaultQuoteSearchFilters,
   type QuoteDetail,
@@ -57,6 +57,27 @@ const selectClass =
 const SELECTED_ITEMS_STORAGE_KEY = "quotation-mvp:quote-selected-items:v1";
 const QUOTE_PARAMS_STORAGE_KEY = "quotation-mvp:quote-params:v1";
 const SIZE_PARAM_KEYS = new Set(["size_display", "length_mm", "width_mm", "height_mm"]);
+const WARNING_TIER_ORDER: WarningTier[] = ["customer", "quote", "logistics"];
+const WARNING_TIER_META: Record<WarningTier, { label: string; badgeClass: string; textClass: string; rowClass: string }> = {
+  customer: {
+    label: "客户可见",
+    badgeClass: "border-red-200 bg-red-50 text-red-800",
+    textClass: "text-red-800",
+    rowClass: "bg-red-50",
+  },
+  quote: {
+    label: "报价风险",
+    badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
+    textClass: "text-amber-800",
+    rowClass: "bg-amber-50",
+  },
+  logistics: {
+    label: "物流缺失",
+    badgeClass: "border-stone-300 bg-stone-50 text-stone-700",
+    textClass: "text-stone-700",
+    rowClass: "bg-stone-50",
+  },
+};
 
 export function QuotesClient({
   filters,
@@ -69,7 +90,7 @@ export function QuotesClient({
 }: QuotesClientProps) {
   const [mode, setMode] = useState<"editing" | "previewing">("editing");
   const [preview, setPreview] = useState<QuotePreviewData | null>(null);
-  const [showProblemRowsOnly, setShowProblemRowsOnly] = useState(false);
+  const [warningFilter, setWarningFilter] = useState<Set<WarningTier>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [reuseNotice, setReuseNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -206,7 +227,7 @@ export function QuotesClient({
       try {
         const data = await previewQuote(formData);
         setPreview(data);
-        setShowProblemRowsOnly(false);
+        setWarningFilter(new Set());
         setMode("previewing");
       } catch (error) {
         setActionError(error instanceof Error ? error.message : "预览生成失败。");
@@ -287,7 +308,7 @@ export function QuotesClient({
         setCustomerMode(draft.customerMode);
         setMode("editing");
         setPreview(null);
-        setShowProblemRowsOnly(false);
+        setWarningFilter(new Set());
 
         const noticeParts = [`已加载 ${nextSelectedItems.size} 个产品`];
         if (draft.skippedItems.length > 0) {
@@ -360,7 +381,7 @@ export function QuotesClient({
     setSelectedItems(new Map());
     setMode("editing");
     setPreview(null);
-    setShowProblemRowsOnly(false);
+    setWarningFilter(new Set());
     setActionError(null);
     setReuseNotice(null);
     window.localStorage.removeItem(SELECTED_ITEMS_STORAGE_KEY);
@@ -387,7 +408,7 @@ export function QuotesClient({
     setCustomerMode(draft.customerMode);
     setMode("editing");
     setPreview(null);
-    setShowProblemRowsOnly(false);
+    setWarningFilter(new Set());
     setActionError(null);
     setReuseNotice(null);
     window.localStorage.removeItem(SELECTED_ITEMS_STORAGE_KEY);
@@ -552,11 +573,11 @@ export function QuotesClient({
         {mode === "previewing" && preview ? (
           <QuotePreviewPanel
             preview={preview}
-            showProblemRowsOnly={showProblemRowsOnly}
+            warningFilter={warningFilter}
             isPending={isPending}
             onBack={() => setMode("editing")}
             onExport={handleExport}
-            onShowProblemRowsOnlyChange={setShowProblemRowsOnly}
+            onWarningFilterChange={setWarningFilter}
           />
         ) : null}
       </div>
@@ -931,21 +952,37 @@ function QuoteParameterPanel({
 
 function QuotePreviewPanel({
   preview,
-  showProblemRowsOnly,
+  warningFilter,
   isPending,
   onBack,
   onExport,
-  onShowProblemRowsOnlyChange,
+  onWarningFilterChange,
 }: {
   preview: QuotePreviewData;
-  showProblemRowsOnly: boolean;
+  warningFilter: Set<WarningTier>;
   isPending: boolean;
   onBack: () => void;
   onExport: () => void;
-  onShowProblemRowsOnlyChange: (value: boolean) => void;
+  onWarningFilterChange: (value: Set<WarningTier>) => void;
 }) {
   const problemRows = preview.rows.filter((row) => row.warnings.length > 0);
-  const visibleRows = showProblemRowsOnly ? problemRows : preview.rows;
+  const sortedRows = [...preview.rows].sort((left, right) => getRowWarningPriority(left) - getRowWarningPriority(right));
+  const visibleRows =
+    warningFilter.size === 0
+      ? sortedRows
+      : sortedRows.filter((row) => row.warnings.some((warning) => warningFilter.has(warning.tier)));
+  const customerWarnings = preview.tierCounts.customer;
+  const totalWarnings = preview.totalWarnings;
+
+  function toggleWarningFilter(tier: WarningTier, checked: boolean) {
+    const nextFilter = new Set(warningFilter);
+    if (checked) {
+      nextFilter.add(tier);
+    } else {
+      nextFilter.delete(tier);
+    }
+    onWarningFilterChange(nextFilter);
+  }
 
   return (
     <section className="rounded-md border border-line bg-paper shadow-panel">
@@ -955,15 +992,7 @@ function QuotePreviewPanel({
             <div className="text-sm font-semibold uppercase tracking-[0.18em] text-leaf">Preview</div>
             <h2 className="mt-1 text-2xl font-semibold text-ink">报价预览</h2>
           </div>
-          <div
-            className={`rounded-md border px-3 py-2 text-sm ${
-              preview.totalWarnings > 0
-                ? "border-amber-200 bg-amber-50 text-amber-800"
-                : "border-green-200 bg-green-50 text-green-700"
-            }`}
-          >
-            {preview.totalWarnings > 0 ? `警告 ${preview.totalWarnings} 条` : "无警告"}
-          </div>
+          <PreviewWarningBadges tierCounts={preview.tierCounts} totalWarnings={totalWarnings} />
         </div>
         <div className="mt-4 grid gap-2 text-sm text-stone-700 md:grid-cols-3 xl:grid-cols-6">
           <PreviewStat label="客户" value={preview.customerName} />
@@ -976,17 +1005,22 @@ function QuotePreviewPanel({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
-        <label className="inline-flex items-center gap-2 text-sm font-medium text-stone-700">
-          <input
-            type="checkbox"
-            checked={showProblemRowsOnly}
-            onChange={(event) => onShowProblemRowsOnlyChange(event.target.checked)}
-            className="h-4 w-4 accent-leaf"
-          />
-          只看有问题的行
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          {WARNING_TIER_ORDER.map((tier) => (
+            <label key={tier} className="inline-flex items-center gap-2 text-sm font-medium text-stone-700">
+              <input
+                type="checkbox"
+                checked={warningFilter.has(tier)}
+                onChange={(event) => toggleWarningFilter(tier, event.target.checked)}
+                className="h-4 w-4 accent-leaf"
+              />
+              {WARNING_TIER_META[tier].label}
+            </label>
+          ))}
+        </div>
         <div className="text-sm text-stone-600">
-          警告 {preview.totalWarnings} 条 / 问题行 {problemRows.length} 行 / 共 {preview.rows.length} 行
+          客户可见 {preview.tierCounts.customer} / 报价风险 {preview.tierCounts.quote} / 物流{" "}
+          {preview.tierCounts.logistics} / 问题行 {problemRows.length} / 共 {preview.rows.length} 行
         </div>
       </div>
 
@@ -1014,7 +1048,7 @@ function QuotePreviewPanel({
             {visibleRows.length === 0 ? (
               <tr>
                 <td className="px-3 py-8 text-center text-stone-500" colSpan={11}>
-                  当前没有问题行。
+                  当前没有匹配的警告行。
                 </td>
               </tr>
             ) : null}
@@ -1031,8 +1065,10 @@ function QuotePreviewPanel({
           返回修改
         </button>
         <div className="flex flex-wrap items-center gap-3">
-          {preview.totalWarnings > 0 ? (
-            <span className="text-sm text-amber-800">有 {preview.totalWarnings} 条警告，仍要导出？</span>
+          {customerWarnings > 0 ? (
+            <span className="text-sm font-semibold text-red-800">有 {customerWarnings} 条客户可见问题，建议修复后再导出</span>
+          ) : totalWarnings > 0 ? (
+            <span className="text-sm text-amber-800">有 {totalWarnings} 条警告，仍要导出？</span>
           ) : null}
           <button
             type="button"
@@ -1050,10 +1086,11 @@ function QuotePreviewPanel({
 }
 
 function PreviewRow({ row }: { row: QuotePreviewRow }) {
-  const hasWarnings = row.warnings.length > 0;
+  const highestTier = getHighestWarningTier(row.warnings);
+  const groupedWarnings = groupWarningsByTier(row.warnings);
 
   return (
-    <tr className={`align-top ${hasWarnings ? "bg-amber-50" : ""}`}>
+    <tr className={`align-top ${highestTier ? WARNING_TIER_META[highestTier].rowClass : ""}`}>
       <td className="min-w-36 px-3 py-3 font-semibold text-ink">{row.modelNo || "-"}</td>
       <td className="max-w-sm whitespace-pre-line px-3 py-3 text-stone-700">{row.productDetails || "-"}</td>
       <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-ink">{row.salePriceDisplay}</td>
@@ -1065,12 +1102,18 @@ function PreviewRow({ row }: { row: QuotePreviewRow }) {
       <td className="whitespace-nowrap px-3 py-3">{row.volume || "-"}</td>
       <td className="min-w-40 px-3 py-3">{row.remark || "-"}</td>
       <td className="min-w-48 px-3 py-3">
-        {hasWarnings ? (
-          <div className="space-y-1 text-xs text-amber-900">
-            <div className="font-semibold">警告</div>
-            {row.warnings.map((warning) => (
-              <div key={warning}>{warning}</div>
-            ))}
+        {highestTier ? (
+          <div className="space-y-2 text-xs">
+            {WARNING_TIER_ORDER.map((tier) =>
+              groupedWarnings[tier].length > 0 ? (
+                <div key={tier} className={WARNING_TIER_META[tier].textClass}>
+                  <div className="font-semibold">{WARNING_TIER_META[tier].label}</div>
+                  {groupedWarnings[tier].map((warning) => (
+                    <div key={`${tier}:${warning.message}`}>{warning.message}</div>
+                  ))}
+                </div>
+              ) : null,
+            )}
             <Link
               href={`/products?productId=${row.productId}#product-${row.productId}`}
               className="inline-flex font-semibold text-leaf underline-offset-2 hover:underline"
@@ -1083,6 +1126,32 @@ function PreviewRow({ row }: { row: QuotePreviewRow }) {
         )}
       </td>
     </tr>
+  );
+}
+
+function PreviewWarningBadges({
+  tierCounts,
+  totalWarnings,
+}: {
+  tierCounts: Record<WarningTier, number>;
+  totalWarnings: number;
+}) {
+  if (totalWarnings === 0) {
+    return (
+      <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">无警告</div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      {WARNING_TIER_ORDER.map((tier) =>
+        tierCounts[tier] > 0 ? (
+          <div key={tier} className={`rounded-md border px-3 py-2 text-sm ${WARNING_TIER_META[tier].badgeClass}`}>
+            {WARNING_TIER_META[tier].label} {tierCounts[tier]}
+          </div>
+        ) : null,
+      )}
+    </div>
   );
 }
 
@@ -1481,19 +1550,54 @@ function PreviewStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getHighestWarningTier(warnings: CategorizedWarning[]): WarningTier | null {
+  return WARNING_TIER_ORDER.find((tier) => warnings.some((warning) => warning.tier === tier)) ?? null;
+}
+
+function getRowWarningPriority(row: QuotePreviewRow): number {
+  const highestTier = getHighestWarningTier(row.warnings);
+  return highestTier ? WARNING_TIER_ORDER.indexOf(highestTier) : WARNING_TIER_ORDER.length;
+}
+
+function groupWarningsByTier(warnings: CategorizedWarning[]): Record<WarningTier, CategorizedWarning[]> {
+  return WARNING_TIER_ORDER.reduce(
+    (groups, tier) => {
+      groups[tier] = warnings.filter((warning) => warning.tier === tier);
+      return groups;
+    },
+    { customer: [], quote: [], logistics: [] } as Record<WarningTier, CategorizedWarning[]>,
+  );
+}
+
 function QuoteHealthSummary({ health }: { health: QuoteProductHealth }) {
   if (health.totalIssueCount === 0) {
     return <div className="mt-2 text-xs font-medium text-green-700">体检通过</div>;
   }
 
+  const warnings = [
+    ...health.productIssues,
+    ...health.offerIssues.flatMap((offer) => offer.issues),
+  ];
+  const tierCounts = countWarningsByTier(warnings);
+
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-        {health.totalIssueCount} 项待检查
-      </span>
+      {WARNING_TIER_ORDER.map((tier) =>
+        tierCounts[tier] > 0 ? (
+          <span
+            key={tier}
+            className={`rounded-md border px-2 py-0.5 text-xs font-medium ${WARNING_TIER_META[tier].badgeClass}`}
+          >
+            {WARNING_TIER_META[tier].label} {tierCounts[tier]}
+          </span>
+        ) : null,
+      )}
       {health.productIssues.map((issue) => (
-        <span key={issue} className="rounded-md border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-700">
-          {issue}
+        <span
+          key={`${issue.tier}:${issue.message}`}
+          className={`rounded-md border px-2 py-0.5 text-xs ${WARNING_TIER_META[issue.tier].badgeClass}`}
+        >
+          {issue.message}
         </span>
       ))}
     </div>
@@ -1506,15 +1610,35 @@ function QuoteOfferHealthList({ health }: { health: QuoteProductHealth }) {
   }
 
   return (
-    <div className="mt-2 space-y-1 text-xs text-amber-800">
+    <div className="mt-2 space-y-1 text-xs">
       {health.offerIssues.slice(0, 3).map((offer) => (
-        <div key={offer.offerId} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1">
-          {offer.factoryName}: {offer.issues.join(" / ")}
+        <div key={offer.offerId} className="rounded-md border border-line bg-white px-2 py-1">
+          <div className="font-semibold text-ink">{offer.factoryName}</div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {offer.issues.map((issue) => (
+              <span
+                key={`${offer.offerId}:${issue.tier}:${issue.message}`}
+                className={`rounded-md border px-2 py-0.5 ${WARNING_TIER_META[issue.tier].badgeClass}`}
+              >
+                {issue.message}
+              </span>
+            ))}
+          </div>
         </div>
       ))}
       {health.offerIssues.length > 3 ? (
         <div className="text-stone-500">另有 {health.offerIssues.length - 3} 条报价需要检查</div>
       ) : null}
     </div>
+  );
+}
+
+function countWarningsByTier(warnings: CategorizedWarning[]): Record<WarningTier, number> {
+  return WARNING_TIER_ORDER.reduce(
+    (counts, tier) => {
+      counts[tier] = warnings.filter((warning) => warning.tier === tier).length;
+      return counts;
+    },
+    { customer: 0, quote: 0, logistics: 0 } as Record<WarningTier, number>,
   );
 }
