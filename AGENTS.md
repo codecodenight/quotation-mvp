@@ -196,6 +196,7 @@ Phase 1 and Phase 2 may be done together.
 | V2.19C | 明确垃圾删除（5 组 -54 产品 -81 offers -89 params） | ✓ |
 | V2.19D | 部分垃圾逐条审计（3 组 98 产品：40 junk / 3 suspect / 55 keep） | ✓ |
 | V2.19D-apply | 部分垃圾删除（41 产品 -44 offers -63 params -44 price_history） | ✓ |
+| V2.19E | 价格异常调查（伟润假警报/欧诺疑似 USD/尼奥 7 条芯片型号价） | ✓ |
 
 ### Current Data (after V2.19C)
 

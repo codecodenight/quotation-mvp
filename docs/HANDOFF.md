@@ -36,6 +36,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 全品类污染扫描 (V2.19B): `scripts/pollution-scan.ts` scored 198 category×factory groups; 3🔴 (吸顶灯-力音/面板灯-侧发光核价/线条灯-广交会) + 11🟡; 人工审阅确认 5 组明确垃圾(54产品)、3 组部分垃圾(98产品需精细过滤)、4 组误报(G4G9旭航/Highbay隆景/G4G9核价/风扇灯鸿烁)、1 组需调查(伟润578产品price=0)
 - 明确垃圾删除 (V2.19C): `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers (含 27 条挂在垃圾产品上的组外 offer) + 89 params + 2 price_history; 19 个垃圾产品有跨工厂额外 offer，说明污染扩散到了 offer 层
 - 部分垃圾逐条审计 (V2.19D): `scripts/partial-junk-audit.ts` 对 3 组 98 产品逐条标记 junk/suspect/keep; 审阅发现: 40 junk 确认删除, COB suspect 也删(共41); 2 个尼奥 LST-5050 suspect 保留(真产品但 price=芯片型号→V2.19E); 瑞鑫 keep 中 ~9 个是规格/材质文本不是产品名(也有价格问题→后续处理)
+- 价格异常调查 (V2.19E): `scripts/price-audit-v2.19e.ts` 调查 3 组; **伟润 578 产品 price=0 是假警报**——V2.19B 的 `CAST AS INTEGER` 把 <1 元铝型材单价截断成 0，实际全部有价格; 欧诺 22 产品价格偏低可能是 USD 不是 RMB; 尼奥 7 条确认价格错(芯片型号/灯珠数当价格)，remark 中可见真实价格(如 ￥3.72)
 
 ### Data (after V2.19D apply)
 - Products: 9,887 across 32 categories (V2.19A-D: -1,457 junk products cleaned)
@@ -210,6 +211,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.19B | 全品类污染扫描 | `scripts/pollution-scan.ts` 扫描 198 组 category×factory；3🔴+11🟡；审阅后分流：5 组明确垃圾→V2.19C、3 组部分垃圾→V2.19D、伟润 price=0→V2.19E、4 组误报不动 |
 | V2.19C | 明确垃圾删除 | `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers（含 27 条组外 offer）+ 89 params；全局 9,982→9,928 产品 |
 | V2.19D | 部分垃圾逐条审计 | `scripts/partial-junk-audit.ts` 3 组 98 产品逐条标记；40 junk + 1 suspect(COB) = 41 确认删除；2 LST suspect 保留→V2.19E |
+| V2.19D-apply | 部分垃圾删除 | `scripts/junk-cleanup-v2.19d.ts` 删除 41 产品 + 44 offers + 63 params + 44 price_history；全局 9,928→9,887 |
+| V2.19E | 价格异常调查 | 伟润假警报（INT 截断）/欧诺疑似 USD/尼奥 7 条芯片型号价格；源文件全部存在 |
 | V2.19D-apply | 部分垃圾删除 | `scripts/junk-cleanup-v2.19d.ts` 删除 41 产品 + 44 offers + 63 params + 44 price_history；全局 9,928→9,887 产品 |
 
 ---
@@ -217,12 +220,10 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.19C: 明确垃圾删除** — 5 组 54 产品（吸顶灯-力音/面板灯-侧发光/线条灯-广交会/轨道灯-Wellux/灯带-迪闻）
-2. **V2.19D: 部分垃圾逐条审计** — 3 组 98 产品（灯带-尼奥/面板灯-瑞鑫/工作灯-启阳）逐产品标记后删除
-3. **V2.19E: 伟润 price=0 调查** — 578 产品价格丢失专项，方向是修复不是删除
-4. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因
-5. **数据充实** — 683 个 likely-importable 文件中仍有大量未导入
-6. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
+1. **小修补（可选）** — 尼奥 7 条价格修正（芯片型号→真实价格）；瑞鑫 keep 中 ~9 条规格文本产品清理；欧诺价格货币确认
+2. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因
+3. **数据充实** — 683 个 likely-importable 文件中仍有大量未导入
+4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -255,6 +256,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.19C — 明确垃圾删除~~ ✅ commit 5f9d9f7 — 5 组 54 产品 + 81 offers 删除，全局 9,982→9,928
 - ~~V2.19D — 部分垃圾逐条审计~~ ✅ commit b9bf2e9 — 3 组 98 产品标记：40 junk + 3 suspect + 55 keep
 - ~~V2.19D apply — 部分垃圾删除~~ ✅ commit d25fd2e — 41 产品 + 44 offers 删除，全局 9,928→9,887
+- ~~V2.19E — 价格异常调查~~ ✅ commit fcdddbe — 伟润假警报(INT截断)、欧诺疑似USD、尼奥7条芯片价
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -290,6 +292,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.19A 价格分布确认垃圾性质：339 个产品各分布在 1000/3000/5000/10000 四个价位，恰好是 MOQ 梯度，不是 RMB 价格
 - V2.19A Step 1 口径调整教训：`NOT GLOB '*[a-zA-Z]*'` 只命中 852/1,368（62%），因为垃圾编码含字母后缀（`1000pom`/`1000eco`）。最终用 `image_path IS NULL` 作删除条件，在审计已验证"6 个有图=6 个正常"的前提下更精确
 - V2.19C 发现垃圾产品可能挂有组外 offer：54 个垃圾产品除了 5 组匹配的 54 条 offer，还有 27 条其他工厂/文件的 offer。删产品必须连同所有 offer 一起删。未来清理脚本都应检查目标产品的全部 offer，不仅是匹配组的 offer
+- V2.19E 伟润假警报教训：`CAST(purchase_price AS INTEGER)` 把 <1 元价格截断成 0，导致 V2.19B 报告"534 price=0"。实际上伟润是铝型材套件，单价 0.048-3.8 元/米完全正常。未来扫描脚本的价格统计不应用 INT 截断，改用 REAL 或保留原始精度
 
 ### Not Now
 - PDF parsing (high effort, uncertain value)
