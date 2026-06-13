@@ -191,15 +191,16 @@ Phase 1 and Phase 2 may be done together.
 | V4.2 | 报价警告分层 + Product Details 质量检测（三层 CategorizedWarning + tier UI） | ✓ |
 | V4.4A | 数据质量仪表盘（/data-quality 只读覆盖率页面） | ✓ |
 | V2.19A-0 | 瑞雪净化灯污染审计（1,368 垃圾产品确认，安全删除） | ✓ |
+| V2.19A-1 | 瑞雪净化灯垃圾删除（-1,362 产品/offers，净化灯覆盖 11%→83%） | ✓ |
 
-### Current Data (after V4.4A — data unchanged from V3.0G)
+### Current Data (after V2.19A Step 1)
 
-- Products: 11,344 across 32 categories
-- Supplier offers: 12,428
-- Product params: 37,236 (32 品类全部有参数)
-- Product images: 7,563 (67% coverage)
+- Products: 9,982 across 32 categories (净化灯 1,559→197 after V2.19A cleanup)
+- Supplier offers: 11,066
+- Product params: 37,197 (32 品类全部有参数)
+- Product images: 7,563 (~76% coverage, up from 67% due to junk removal)
 - Imported from 563+ source files with active supplier offers (1,097 My Passport file records)
-- CTN coverage: ctn_qty 2,813 / L×W×H 1,787 out of 12,428 offers
+- CTN coverage: ctn_qty ~2,813 / L×W×H ~1,787 out of 11,066 offers
 - Price timestamp coverage: ~95%
 - Price history: 9,899 records
 

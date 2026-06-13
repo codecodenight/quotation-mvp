@@ -32,10 +32,11 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Warning tier system (V4.2): flat `string[]` warnings upgraded to `CategorizedWarning[]` with 3 tiers (customer-visible / quote-risk / logistics); Product Details quality checks detect Chinese chars, packaging labels, < 2 lines; preview UI: tier badges (red/amber/gray), per-tier filter checkboxes, row sorting by severity, tier-colored row backgrounds; export prompt distinguishes customer-visible issues from logistics warnings
 - Data quality dashboard (V4.4A): `/data-quality` read-only page with per-category coverage metrics (products, offers, images, params, size, CTN); 4 parallel SQL aggregations via `prisma.$queryRaw`; three-color coverage encoding (≥80% green, 40-79% amber, <40% red); category names link to `/products?category=XXX`
 - 瑞雪净化灯污染审计 (V2.19A Step 0): `scripts/ruixue-audit.ts` read-only audit confirmed 1,368 junk products from "瑞雪报价2023.8.31 - 净化灯-.xlsx" — product names are numeric codes, prices are MOQ tiers (1000/3000/5000/10000), zero remark/size; quote_items=0, safe to delete; 6 legitimate products (T8AP60/T8GlassAC60/T8PC90 系列) with real names+images must be excluded from deletion; after cleanup predicted: 图片 11%→83%, 参数 12%→98%, Size 12%→96%, CTN 9%→73%
+- 瑞雪净化灯垃圾删除 (V2.19A Step 1): `scripts/ruixue-cleanup.ts` with --dry-run/--apply modes; deleted 1,362 products + 1,362 offers + 4 params; preserved 6 T8 products; deletion scope adjusted from task spec's `NOT GLOB '*[a-zA-Z]*'`(only 852 hits) to `image_path IS NULL`(1,362 hits) because junk names like `1000pom/1000eco` contain letters; backup at `backups/dev-before-v2.19a-step1-20260613-202132.sqlite`
 
-### Data (after V4.2 — data unchanged from V3.0G / V2.18B)
-- Products: 11,344 across 32 categories (31 from V2.17G + 充电灯)
-- Supplier offers: 12,428
+### Data (after V2.19A Step 1)
+- Products: 9,982 across 32 categories (净化灯 1,559→197 after V2.19A cleanup)
+- Supplier offers: 11,066
 - Files (My Passport): 1,097+
 - Price history: 9,899 records
 - Product images: 7,563 products have images
@@ -202,14 +203,14 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V4.2 | 报价警告分层 + Product Details 质量检测 | `CategorizedWarning` 三层分类（customer/quote/logistics）；预览 tier badges + 筛选 + 排序 + 分色行背景；Product Details 中文/包装/行数检测；导出提示区分客户可见 vs 普通警告 |
 | V4.4A | 数据质量仪表盘 | `/data-quality` 只读页面；4 个并行 SQL 查询按品类统计图片/参数/Size/CTN 覆盖率；三色编码 + 品类跳转 |
 | V2.19A-0 | 瑞雪净化灯污染审计 | `scripts/ruixue-audit.ts` 确认 1,368 垃圾产品（数字名、MOQ 价格、零 remark/size）；quote_items=0 安全删除；6 个正常产品需排除 |
+| V2.19A-1 | 瑞雪净化灯垃圾删除 | `scripts/ruixue-cleanup.ts` 删除 1,362 产品+offers+4 params；保留 6 个 T8 产品；净化灯覆盖率跃升（图片 83%/参数 95%/Size 93%/CTN 71%）；全局 11,344→9,982 产品 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.19A Step 1: 瑞雪净化灯垃圾删除** — 备份 DB → 删除 1,368 垃圾产品/offers（排除 6 个正常产品）→ 级联删 4 条 product_params → 验证覆盖率提升
-2. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因；评估剩余 likely-importable 净化灯文件
+1. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因；评估剩余 likely-importable 净化灯文件是否值得导入
 3. **数据充实** — 683 个 likely-importable 文件中仍有大量未导入；参数覆盖率可通过源文件二次提取提升
 4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
@@ -239,6 +240,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V4.2 — 报价警告分层~~ ✅ commit 4b3a97b — CategorizedWarning 三层 + tier badges/filter/sort + Product Details 质量检测
 - ~~V4.4A — 数据质量仪表盘~~ ✅ commit 12e6428 — /data-quality 页面，30 个品类覆盖率一览
 - ~~V2.19A Step 0 — 瑞雪净化灯污染审计~~ ✅ commit 61ad1ce — 1,368 垃圾产品确认，quote_items=0 安全删除，6 个正常产品需排除
+- ~~V2.19A Step 1 — 瑞雪净化灯垃圾删除~~ ✅ commit 9ffe2f1 — 1,362 产品+offers 删除，6 个 T8 产品保留，净化灯图片 11%→83%
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -272,6 +274,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V4.2 警告分层设计：tier 分类放在数据层（`CategorizedWarning`），颜色/标签放在 UI 配置（`WARNING_TIER_META`），实现了数据与呈现解耦
 - V2.19A 审计发现瑞雪净化灯 1,368 产品中有 6 个是正常数据（T8AP60/T8GlassAC60/T8PC90 系列，有真实产品名和图片），删除时必须排除。删除范围应用 product_name 全数字判断，不能简单用 `factory_name LIKE '瑞雪%'`
 - V2.19A 价格分布确认垃圾性质：339 个产品各分布在 1000/3000/5000/10000 四个价位，恰好是 MOQ 梯度，不是 RMB 价格
+- V2.19A Step 1 口径调整教训：`NOT GLOB '*[a-zA-Z]*'` 只命中 852/1,368（62%），因为垃圾编码含字母后缀（`1000pom`/`1000eco`）。最终用 `image_path IS NULL` 作删除条件，在审计已验证"6 个有图=6 个正常"的前提下更精确
 
 ### Not Now
 - PDF parsing (high effort, uncertain value)
