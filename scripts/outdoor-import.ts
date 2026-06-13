@@ -18,6 +18,7 @@ const PRICE_MIN = 0.01;
 const PRICE_MAX = 100_000;
 const SKIPPABLE_SHEET_NAME = /目录|index|cover|封面/i;
 const runStartedAt = new Date();
+const V218B_IMPORT_RELATIVE_PATHS = new Set(["户外照明 工业照明/户外工厂/伊特/2026/4.25 产品报价-含税.xlsx"]);
 
 type FileMode = "import" | "analyze-only";
 
@@ -74,7 +75,7 @@ type SheetDryRunResult = {
   factory: string;
   sheetName: string;
   mode: FileMode;
-  status: "ok" | "no-import-columns" | "no-valid-rows" | "read-error" | "analyze-only";
+  status: "ok" | "no-import-columns" | "no-valid-rows" | "read-error" | "analyze-only" | "already-imported";
   error: string | null;
   rowCount: number;
   headerRow: number | null;
@@ -289,9 +290,8 @@ const FILE_LIST: OutdoorFileEntry[] = [
   {
     relativePath: "户外照明 工业照明/户外工厂/伊特/2026/4.25 产品报价-含税.xlsx",
     factory: "伊特",
-    targetCategory: "待人工分配",
-    mode: "analyze-only",
-    note: "🔍 分析模式 — apply 时跳过",
+    targetCategory: "投光灯",
+    mode: "import",
   },
 ];
 
@@ -376,8 +376,58 @@ async function runApply(): Promise<FileApplyResult[]> {
       results.push(result);
       continue;
     }
+    if (shouldSkipForV218B(entry)) {
+      result.sheets.push({
+        relativePath: resolved.relativePath,
+        category: entry.targetCategory,
+        factory: entry.factory,
+        sheetName: "-",
+        status: "already-imported",
+        headerRow: null,
+        modelColumn: "-",
+        priceColumn: "-",
+        validRows: 0,
+        skippedRows: 0,
+        newProducts: 0,
+        reusedProducts: 0,
+        newOffers: 0,
+        updatedOffers: 0,
+        supplementedOffers: 0,
+        duplicateOffers: 0,
+        priceHistory: 0,
+        error: "V2.18B 只导入伊特 4.25，本条为 V2.18 已处理条目，跳过",
+      });
+      results.push(result);
+      continue;
+    }
 
     try {
+      const existingSourceOfferCount = await countExistingSourceOffers(resolved.relativePath);
+      if (existingSourceOfferCount > 0) {
+        result.sheets.push({
+          relativePath: resolved.relativePath,
+          category: entry.targetCategory,
+          factory: entry.factory,
+          sheetName: "-",
+          status: "already-imported",
+          headerRow: null,
+          modelColumn: "-",
+          priceColumn: "-",
+          validRows: 0,
+          skippedRows: 0,
+          newProducts: 0,
+          reusedProducts: 0,
+          newOffers: 0,
+          updatedOffers: 0,
+          supplementedOffers: 0,
+          duplicateOffers: existingSourceOfferCount,
+          priceHistory: 0,
+          error: `源文件已有 ${existingSourceOfferCount} 条 supplier_offers 引用，跳过以避免重复写价格历史`,
+        });
+        results.push(result);
+        continue;
+      }
+
       const absolutePath = path.join(ROOT, resolved.relativePath);
       const workbook = XLSX.readFile(absolutePath, { cellDates: false, WTF: false });
       result.sheetCount = workbook.SheetNames.length;
@@ -559,6 +609,26 @@ async function runDryRun(): Promise<FileDryRunResult[]> {
     };
 
     try {
+      if (shouldSkipForV218B(entry)) {
+        result.importSheets.push({
+          ...emptySheetResult(entry, resolved.relativePath, "-", "already-imported", null),
+          warning: "V2.18B 只导入伊特 4.25，本条为 V2.18 已处理条目，跳过",
+        });
+        results.push(result);
+        continue;
+      }
+
+      const existingSourceOfferCount = await countExistingSourceOffers(resolved.relativePath);
+      if (entry.mode === "import" && existingSourceOfferCount > 0) {
+        result.importSheets.push({
+          ...emptySheetResult(entry, resolved.relativePath, "-", "already-imported", null),
+          duplicateOffers: existingSourceOfferCount,
+          warning: `源文件已有 ${existingSourceOfferCount} 条 supplier_offers 引用，跳过以避免重复写价格历史`,
+        });
+        results.push(result);
+        continue;
+      }
+
       const workbook = XLSX.readFile(path.join(ROOT, resolved.relativePath), { cellDates: false, WTF: false });
       result.sheetCount = workbook.SheetNames.length;
 
@@ -918,7 +988,9 @@ function buildReport(results: FileDryRunResult[], backupPath: string): string {
   const importSheets = importFiles.flatMap((result) => result.importSheets);
   const analyzeSheets = analyzeFiles.flatMap((result) => result.analyzeSheets);
   const okSheets = importSheets.filter((sheet) => sheet.status === "ok");
-  const issueSheets = importSheets.filter((sheet) => sheet.status !== "ok" || sheet.warning);
+  const issueSheets = importSheets.filter(
+    (sheet) => (sheet.status !== "ok" && sheet.status !== "already-imported") || (Boolean(sheet.warning) && sheet.status !== "already-imported"),
+  );
   const categorySummary = summarizeByCategory(importSheets);
 
   const lines: string[] = [];
@@ -970,7 +1042,9 @@ function buildReport(results: FileDryRunResult[], backupPath: string): string {
     const priceColumns = unique(result.importSheets.flatMap((sheet) => sheet.priceColumns.length > 0 ? sheet.priceColumns : [sheet.priceColumn]).filter((value) => value !== "-")).slice(0, 4);
     const issues = [
       result.readError,
-      ...result.importSheets.filter((sheet) => sheet.status !== "ok").map((sheet) => `${sheet.sheetName}: ${sheet.error ?? sheet.status}`),
+      ...result.importSheets
+        .filter((sheet) => sheet.status !== "ok" && sheet.status !== "already-imported")
+        .map((sheet) => `${sheet.sheetName}: ${sheet.error ?? sheet.status}`),
       result.entry.note,
     ].filter(Boolean);
     lines.push(
@@ -1019,34 +1093,36 @@ function buildReport(results: FileDryRunResult[], backupPath: string): string {
   }
   lines.push("");
 
-  lines.push("## 伊特 4.25 产品报价-含税 — 分析模式");
-  lines.push("");
-  lines.push("🔍 该文件只分析，apply 时跳过。");
-  lines.push("");
-  lines.push("| Sheet | rows | Header Row | Model Column | Price Column | 关键词 | 建议品类 | 说明 |");
-  lines.push("|---|---:|---:|---|---|---|---|---|");
-  for (const sheet of analyzeSheets) {
-    lines.push(
-      `| ${escapeMd(sheet.sheetName)} | ${sheet.rowCount} | ${sheet.headerRow ?? "-"} | ${escapeMd(sheet.modelColumn)} | ${escapeMd(formatPriceColumnForReport(sheet.priceColumn))} | ${escapeMd(sheet.keywords.join(", ") || "-")} | ${escapeMd(sheet.suggestedCategory)} | ${escapeMd(sheet.categoryNote)} |`,
-    );
-  }
-  lines.push("");
-  for (const sheet of analyzeSheets) {
-    lines.push(`### ${escapeMd(sheet.sheetName)}`);
+  if (analyzeSheets.length > 0) {
+    lines.push("## Analyze-only 文件");
     lines.push("");
-    if (sheet.skipReason) {
-      lines.push(`检测提示：${sheet.skipReason}`);
+    lines.push("🔍 以下文件只分析，apply 时跳过。");
+    lines.push("");
+    lines.push("| Sheet | rows | Header Row | Model Column | Price Column | 关键词 | 建议品类 | 说明 |");
+    lines.push("|---|---:|---:|---|---|---|---|---|");
+    for (const sheet of analyzeSheets) {
+      lines.push(
+        `| ${escapeMd(sheet.sheetName)} | ${sheet.rowCount} | ${sheet.headerRow ?? "-"} | ${escapeMd(sheet.modelColumn)} | ${escapeMd(formatPriceColumnForReport(sheet.priceColumn))} | ${escapeMd(sheet.keywords.join(", ") || "-")} | ${escapeMd(sheet.suggestedCategory)} | ${escapeMd(sheet.categoryNote)} |`,
+      );
+    }
+    lines.push("");
+    for (const sheet of analyzeSheets) {
+      lines.push(`### ${escapeMd(sheet.sheetName)}`);
+      lines.push("");
+      if (sheet.skipReason) {
+        lines.push(`检测提示：${sheet.skipReason}`);
+        lines.push("");
+      }
+      lines.push("| # | model / product | description |");
+      lines.push("|---:|---|---|");
+      sheet.samples.forEach((sample, index) => {
+        lines.push(`| ${index + 1} | ${escapeMd(sample.modelNo || sample.productName)} | ${escapeMd(sample.description)} |`);
+      });
+      if (sheet.samples.length === 0) {
+        lines.push("| - | - | - |");
+      }
       lines.push("");
     }
-    lines.push("| # | model / product | description |");
-    lines.push("|---:|---|---|");
-    sheet.samples.forEach((sample, index) => {
-      lines.push(`| ${index + 1} | ${escapeMd(sample.modelNo || sample.productName)} | ${escapeMd(sample.description)} |`);
-    });
-    if (sheet.samples.length === 0) {
-      lines.push("| - | - | - |");
-    }
-    lines.push("");
   }
 
   lines.push("## 风险项 / 检测失败");
@@ -1082,7 +1158,11 @@ function buildReport(results: FileDryRunResult[], backupPath: string): string {
   lines.push("");
   lines.push("- 本报告只做 dry-run：未调用 Prisma create/update/delete，没有写入 files/products/supplier_offers/price_history。");
   lines.push("- 只读取 19 个硬编码目标文件；不读取 enrichment-only，不读取 `_lenovo` 冲突文件。");
-  lines.push("- `伊特/2026/4.25 产品报价-含税.xlsx` 为 analyze-only，当前不进入导入估算。");
+  if (analyzeFiles.length > 0) {
+    lines.push("- analyze-only 文件不进入导入估算。");
+  } else {
+    lines.push("- 本次没有 analyze-only 文件，19 个文件全部按 import 流程评估。");
+  }
   lines.push("- `updated offers` 表示同 product + factory 已存在但价格不同；真正 apply 时会走价格版本追踪。");
 
   return lines.join("\n");
@@ -1172,7 +1252,7 @@ function buildApplyReport({
   lines.push("");
   lines.push("| 文件 | 品类 | 工厂 | Sheet | 原因 |");
   lines.push("|---|---|---|---|---|");
-  const issues = sheets.filter((sheet) => sheet.status !== "ok" || sheet.error);
+  const issues = sheets.filter((sheet) => (sheet.status !== "ok" && sheet.status !== "already-imported") || (Boolean(sheet.error) && sheet.status !== "already-imported"));
   if (issues.length === 0) {
     lines.push("| - | - | - | - | 无 |");
   } else {
@@ -1184,7 +1264,11 @@ function buildApplyReport({
 
   lines.push("## 说明");
   lines.push("");
-  lines.push("- `伊特/2026/4.25 产品报价-含税.xlsx` 是 analyze-only，本次 apply 跳过。");
+  if (FILE_LIST.some((entry) => entry.mode === "analyze-only")) {
+    lines.push("- analyze-only 文件本次 apply 跳过。");
+  } else {
+    lines.push("- 本次没有 analyze-only 文件，19 个文件全部按 import 流程处理。");
+  }
   lines.push("- 4 个 needs-review 文件未检测到型号/RMB 价格列，apply 时按计划跳过。");
   lines.push("- `KCD-TB qoutation20250527.xlsx` 已按审核改归 `太阳能壁灯`。");
   lines.push("- 源 Excel 文件只读，未移动、未重命名、未覆盖。");
@@ -1253,6 +1337,24 @@ async function getDbCounts(): Promise<DbCounts> {
     filesMyPassport,
     categories: Object.fromEntries(categories.map((row) => [row.category ?? "(null)", row._count._all])),
   };
+}
+
+async function countExistingSourceOffers(relativePath: string): Promise<number> {
+  const fileRecord = await prisma.file.findUnique({
+    where: {
+      volumeName_relativePath: {
+        volumeName: "My Passport",
+        relativePath,
+      },
+    },
+    select: { id: true },
+  });
+  if (!fileRecord) return 0;
+  return prisma.supplierOffer.count({ where: { sourceFileId: fileRecord.id } });
+}
+
+function shouldSkipForV218B(entry: OutdoorFileEntry): boolean {
+  return entry.mode === "import" && !V218B_IMPORT_RELATIVE_PATHS.has(entry.relativePath);
 }
 
 async function resolveDiskPath(relativePath: string): Promise<{ relativePath: string; note: string | null }> {
