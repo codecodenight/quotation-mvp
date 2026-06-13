@@ -193,15 +193,16 @@ Phase 1 and Phase 2 may be done together.
 | V2.19A-0 | 瑞雪净化灯污染审计（1,368 垃圾产品确认，安全删除） | ✓ |
 | V2.19A-1 | 瑞雪净化灯垃圾删除（-1,362 产品/offers，净化灯覆盖 11%→83%） | ✓ |
 | V2.19B | 全品类污染扫描（3🔴 + 11🟡，误报 4 组已排除） | ✓ |
+| V2.19C | 明确垃圾删除（5 组 -54 产品 -81 offers -89 params） | ✓ |
 
-### Current Data (after V2.19A Step 1)
+### Current Data (after V2.19C)
 
-- Products: 9,982 across 32 categories (净化灯 1,559→197 after V2.19A cleanup)
-- Supplier offers: 11,066
-- Product params: 37,197 (32 品类全部有参数)
-- Product images: 7,563 (~76% coverage, up from 67% due to junk removal)
+- Products: 9,928 across 32 categories (V2.19A-C cumulative: -1,416 junk products)
+- Supplier offers: 10,985
+- Product params: 37,108 (32 品类全部有参数)
+- Product images: ~7,557 (~76% coverage)
 - Imported from 563+ source files with active supplier offers (1,097 My Passport file records)
-- CTN coverage: ctn_qty ~2,813 / L×W×H ~1,787 out of 11,066 offers
+- CTN coverage: ctn_qty ~2,813 / L×W×H ~1,787 out of 10,985 offers
 - Price timestamp coverage: ~95%
 - Price history: 9,899 records
 

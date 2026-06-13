@@ -34,10 +34,11 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 瑞雪净化灯污染审计 (V2.19A Step 0): `scripts/ruixue-audit.ts` read-only audit confirmed 1,368 junk products from "瑞雪报价2023.8.31 - 净化灯-.xlsx" — product names are numeric codes, prices are MOQ tiers (1000/3000/5000/10000), zero remark/size; quote_items=0, safe to delete; 6 legitimate products (T8AP60/T8GlassAC60/T8PC90 系列) with real names+images must be excluded from deletion; after cleanup predicted: 图片 11%→83%, 参数 12%→98%, Size 12%→96%, CTN 9%→73%
 - 瑞雪净化灯垃圾删除 (V2.19A Step 1): `scripts/ruixue-cleanup.ts` with --dry-run/--apply modes; deleted 1,362 products + 1,362 offers + 4 params; preserved 6 T8 products; deletion scope adjusted from task spec's `NOT GLOB '*[a-zA-Z]*'`(only 852 hits) to `image_path IS NULL`(1,362 hits) because junk names like `1000pom/1000eco` contain letters; backup at `backups/dev-before-v2.19a-step1-20260613-202132.sqlite`
 - 全品类污染扫描 (V2.19B): `scripts/pollution-scan.ts` scored 198 category×factory groups; 3🔴 (吸顶灯-力音/面板灯-侧发光核价/线条灯-广交会) + 11🟡; 人工审阅确认 5 组明确垃圾(54产品)、3 组部分垃圾(98产品需精细过滤)、4 组误报(G4G9旭航/Highbay隆景/G4G9核价/风扇灯鸿烁)、1 组需调查(伟润578产品price=0)
+- 明确垃圾删除 (V2.19C): `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers (含 27 条挂在垃圾产品上的组外 offer) + 89 params + 2 price_history; 19 个垃圾产品有跨工厂额外 offer，说明污染扩散到了 offer 层
 
-### Data (after V2.19A Step 1)
-- Products: 9,982 across 32 categories (净化灯 1,559→197 after V2.19A cleanup)
-- Supplier offers: 11,066
+### Data (after V2.19C)
+- Products: 9,928 across 32 categories (V2.19A-C: -1,416 junk products cleaned)
+- Supplier offers: 10,985
 - Files (My Passport): 1,097+
 - Price history: 9,899 records
 - Product images: 7,563 products have images
@@ -206,6 +207,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.19A-0 | 瑞雪净化灯污染审计 | `scripts/ruixue-audit.ts` 确认 1,368 垃圾产品（数字名、MOQ 价格、零 remark/size）；quote_items=0 安全删除；6 个正常产品需排除 |
 | V2.19A-1 | 瑞雪净化灯垃圾删除 | `scripts/ruixue-cleanup.ts` 删除 1,362 产品+offers+4 params；保留 6 个 T8 产品；净化灯覆盖率跃升（图片 83%/参数 95%/Size 93%/CTN 71%）；全局 11,344→9,982 产品 |
 | V2.19B | 全品类污染扫描 | `scripts/pollution-scan.ts` 扫描 198 组 category×factory；3🔴+11🟡；审阅后分流：5 组明确垃圾→V2.19C、3 组部分垃圾→V2.19D、伟润 price=0→V2.19E、4 组误报不动 |
+| V2.19C | 明确垃圾删除 | `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers（含 27 条组外 offer）+ 89 params；全局 9,982→9,928 产品 |
 
 ---
 
@@ -247,6 +249,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.19A Step 0 — 瑞雪净化灯污染审计~~ ✅ commit 61ad1ce — 1,368 垃圾产品确认，quote_items=0 安全删除，6 个正常产品需排除
 - ~~V2.19A Step 1 — 瑞雪净化灯垃圾删除~~ ✅ commit 9ffe2f1 — 1,362 产品+offers 删除，6 个 T8 产品保留，净化灯图片 11%→83%
 - ~~V2.19B — 全品类污染扫描~~ ✅ commit de1d24f — 198 组扫描，3🔴+11🟡，审阅分流到 V2.19C/D/E
+- ~~V2.19C — 明确垃圾删除~~ ✅ commit 5f9d9f7 — 5 组 54 产品 + 81 offers 删除，全局 9,982→9,928
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -281,6 +284,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.19A 审计发现瑞雪净化灯 1,368 产品中有 6 个是正常数据（T8AP60/T8GlassAC60/T8PC90 系列，有真实产品名和图片），删除时必须排除。删除范围应用 product_name 全数字判断，不能简单用 `factory_name LIKE '瑞雪%'`
 - V2.19A 价格分布确认垃圾性质：339 个产品各分布在 1000/3000/5000/10000 四个价位，恰好是 MOQ 梯度，不是 RMB 价格
 - V2.19A Step 1 口径调整教训：`NOT GLOB '*[a-zA-Z]*'` 只命中 852/1,368（62%），因为垃圾编码含字母后缀（`1000pom`/`1000eco`）。最终用 `image_path IS NULL` 作删除条件，在审计已验证"6 个有图=6 个正常"的前提下更精确
+- V2.19C 发现垃圾产品可能挂有组外 offer：54 个垃圾产品除了 5 组匹配的 54 条 offer，还有 27 条其他工厂/文件的 offer。删产品必须连同所有 offer 一起删。未来清理脚本都应检查目标产品的全部 offer，不仅是匹配组的 offer
 
 ### Not Now
 - PDF parsing (high effort, uncertain value)
