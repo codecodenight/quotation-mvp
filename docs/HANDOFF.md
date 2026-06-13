@@ -7,7 +7,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 
 ---
 
-## Current State (after V4.2)
+## Current State (after V4.4A)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -30,6 +30,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Outdoor factory unclassified import (V2.18): 19 files across 5 factories (凯晟德/绿晟/伊特/中屹) imported with per-file category assignment; new category 充电灯; `scripts/outdoor-import.ts` with hardcoded FILE_LIST + dry-run/apply modes; KCD-TB reclassified from 投光灯 to 太阳能壁灯 based on dry-run sample review
 - Quote quality fixes (V4.1): health check recognizes `size_display` / dimension params as satisfying size requirement; CCT extraction rejects tolerance values (±500K) and standalone values < 1800K; Product Details fallback filters Chinese packaging labels and empty-value lines; `lumens` added to PARAM_FORMATTERS
 - Warning tier system (V4.2): flat `string[]` warnings upgraded to `CategorizedWarning[]` with 3 tiers (customer-visible / quote-risk / logistics); Product Details quality checks detect Chinese chars, packaging labels, < 2 lines; preview UI: tier badges (red/amber/gray), per-tier filter checkboxes, row sorting by severity, tier-colored row backgrounds; export prompt distinguishes customer-visible issues from logistics warnings
+- Data quality dashboard (V4.4A): `/data-quality` read-only page with per-category coverage metrics (products, offers, images, params, size, CTN); 4 parallel SQL aggregations via `prisma.$queryRaw`; three-color coverage encoding (≥80% green, 40-79% amber, <40% red); category names link to `/products?category=XXX`
 
 ### Data (after V4.2 — data unchanged from V3.0G / V2.18B)
 - Products: 11,344 across 32 categories (31 from V2.17G + 充电灯)
@@ -198,6 +199,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V3.0G | V2.18 户外产品参数提取 | 7 品类 2,315 产品重跑 → net +187 params；新建充电灯 extractor（7/7 100%）；product_params 37,049→37,236 |
 | V4.1 | 报价质量修复（3 个客户可见问题） | 健康检查 size_display 参数感知；CCT lookbehind 加 ± + <1800K 阈值过滤（清除 22 条脏数据）；Product Details fallback 过滤包装标签 + 空值行；lumens 加入 PARAM_FORMATTERS |
 | V4.2 | 报价警告分层 + Product Details 质量检测 | `CategorizedWarning` 三层分类（customer/quote/logistics）；预览 tier badges + 筛选 + 排序 + 分色行背景；Product Details 中文/包装/行数检测；导出提示区分客户可见 vs 普通警告 |
+| V4.4A | 数据质量仪表盘 | `/data-quality` 只读页面；4 个并行 SQL 查询按品类统计图片/参数/Size/CTN 覆盖率；三色编码 + 品类跳转 |
 
 ---
 
@@ -232,6 +234,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V3.0G — V2.18 户外产品参数提取~~ ✅ commit e3fedea — 充电灯 7/7 100%；net +187 params；product_params 37,236
 - ~~V4.1 — 报价质量修复~~ ✅ commit b0fd659 — size_display 参数感知 + CCT 容差过滤 + Product Details fallback 清洗 + lumens formatter
 - ~~V4.2 — 报价警告分层~~ ✅ commit 4b3a97b — CategorizedWarning 三层 + tier badges/filter/sort + Product Details 质量检测
+- ~~V4.4A — 数据质量仪表盘~~ ✅ commit 12e6428 — /data-quality 页面，30 个品类覆盖率一览
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3

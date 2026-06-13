@@ -189,8 +189,9 @@ Phase 1 and Phase 2 may be done together.
 | V3.0G | V2.18 户外产品参数提取（充电灯 extractor + 7 品类重跑） | ✓ |
 | V4.1 | 报价质量修复（size 参数感知 + CCT 容差过滤 + fallback 清洗） | ✓ |
 | V4.2 | 报价警告分层 + Product Details 质量检测（三层 CategorizedWarning + tier UI） | ✓ |
+| V4.4A | 数据质量仪表盘（/data-quality 只读覆盖率页面） | ✓ |
 
-### Current Data (after V4.2 — data unchanged from V3.0G)
+### Current Data (after V4.4A — data unchanged from V3.0G)
 
 - Products: 11,344 across 32 categories
 - Supplier offers: 12,428
