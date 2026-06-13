@@ -187,8 +187,10 @@ Phase 1 and Phase 2 may be done together.
 | V2.18 | 户外工厂-未判定导入（18 文件，新品类充电灯） | ✓ |
 | V2.18B | 伊特 4.25 投光灯导入（+44 products +202 price_history） | ✓ |
 | V3.0G | V2.18 户外产品参数提取（充电灯 extractor + 7 品类重跑） | ✓ |
+| V4.1 | 报价质量修复（size 参数感知 + CCT 容差过滤 + fallback 清洗） | ✓ |
+| V4.2 | 报价警告分层 + Product Details 质量检测（三层 CategorizedWarning + tier UI） | ✓ |
 
-### Current Data (after V3.0G / V2.18B)
+### Current Data (after V4.2 — data unchanged from V3.0G)
 
 - Products: 11,344 across 32 categories
 - Supplier offers: 12,428
@@ -554,9 +556,11 @@ These may be built as future enhancements on top of the MVP data layer.
 
 None. Pending next task assignment.
 
-## Known Data Quality Issues (post V3.0G)
+## Known Data Quality Issues (post V4.2)
 
 1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
 2. ~3,781 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行、.xls 文件跳过图片提取）
 3. V3.0G 已让 32 个品类全部进入 product_params 体系；剩余缺参数产品主要受 DB 字段文本缺失限制
 4. V2.18 needs-review 4 文件（绿晟 R01/R03/R06 + W12F-20W50W）无型号列/RMB 价格列，暂时无法导入
+5. V4.1 已清除 CCT < 1800K 脏数据（22→0）；V4.2 警告系统可在导出前检测 Product Details 中文/包装/行数问题
+6. 凯晟德太阳能壁灯（TK-13 A 等）只有 `Chip Type: SMD2835`，源数据限制，待补规格
