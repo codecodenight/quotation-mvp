@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
-Last updated: 2026-06-12
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0C / V3.0F / V2.17G
+Last updated: 2026-06-13
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.0C / V3.0G / V2.18B
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V3.0F / V2.17G)
+## Current State (after V3.0G / V2.18B)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -27,18 +27,20 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Quotes + product library param enhancement (V4.0B): quotes page category/watts/IP/CCT filters + param tags in search results and selected items; product library CCT filter + `<details>` expandable full param table; shared `product-filters.ts` module eliminates duplication
 - Quote Product Details from params (V4.0C): `product-details-builder.ts` generates stable English spec lines (Power/CCT/IP/Size/Material/...) from `product_params`; ≥2 valid lines → use params, otherwise fallback to remark+size; size dedup when `size_display` exists; preview, export, and history detail all share the same path
 - Tube/bulb split import with price column audit (V2.17): mixed 球泡/灯管 files classified by sheet content, imported with hardened price column detection; `isNonPriceHeader()` blocklist + `isPriceHeader()` semantic priority + model==price same-column rejection + empty-header exclusion
+- Outdoor factory unclassified import (V2.18): 19 files across 5 factories (凯晟德/绿晟/伊特/中屹) imported with per-file category assignment; new category 充电灯; `scripts/outdoor-import.ts` with hardcoded FILE_LIST + dry-run/apply modes; KCD-TB reclassified from 投光灯 to 太阳能壁灯 based on dry-run sample review
 
-### Data (after V3.0F / V2.17G)
-- Products: 11,236 across 31 categories (29 from Batch 1-3 + 球泡 expanded 151→341, 灯管 expanded 8→84)
-- Supplier offers: 12,320
+### Data (after V3.0G / V2.18B)
+- Products: 11,344 across 32 categories (31 from V2.17G + 充电灯)
+- Supplier offers: 12,428
 - Files (My Passport): 1,097+
-- Price history: 9,634 records
+- Price history: 9,899 records
 - Product images: 7,563 products have images
-- Product params: 37,049 (31 categories; V3.0F added 1,606 params for 球泡 341/341 + 灯管 83/84)
-- Batch 1 categories growth: 投光灯 16→444, 面板灯 69→886, 线条灯 38→1,123, 路灯 15→197, 灯带 21→383
+- Product params: 37,236 (32 categories all have params; V3.0G added 187 net new params)
+- Batch 1 categories growth: 投光灯 16→492, 面板灯 69→902, 线条灯 38→1,123, 路灯 15→213, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
-- Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→85, G4G9 0→51, 太阳能壁灯 87→555, 壁灯 27→290, 橱柜灯 134→204
+- Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
 - Tube/bulb split growth: 球泡 151→341 (+190), 灯管 8→84 (+76)
+- Outdoor factory import (V2.18/B): 充电灯 0→7, 投光灯 +48, 面板灯 +16, 路灯 +16, 工作灯 +12, 太阳能壁灯 +6, Highbay +3
 
 ### Data Sources on Disk (reorganized 2026-06-11)
 User reorganized the external hard drive from a flat structure (~60 top-level dirs) to a hierarchical structure:
@@ -189,14 +191,16 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.17F | 价格列修复 round 2 | 灯珠颗数入黑名单 + model==price 同列拒绝 + 空表头列排除 + 差价/配件列排除；报告 0 个 ⚠️ |
 | V2.17G | 拆分导入 apply（修正后） | +266 产品 +330 offers +1,436 price_history；球泡 151→341、灯管 8→84；价格列全部有语义关键词 |
 | V3.0F | 球泡/灯管参数提取 | 球泡 341/341（100%）+ 灯管 83/84（98.8%）→ +1,606 params；product_params 35,443→37,049；增强 `extractBulbParams` + `extractTubeLightParams` |
+| V2.18 | 户外工厂-未判定导入 | 19 文件（18 import + 1 analyze-only）；15 sheets 导入 129 行 → +64 products +64 offers +63 price_history；新品类充电灯；KCD-TB 由投光灯改归太阳能壁灯；4 个 needs-review 文件检测失败静默跳过 |
+| V2.18B | 伊特 4.25 投光灯导入 | 单文件 292 行 YLT-TG163 系列 → +44 products +44 offers +202 price_history；投光灯 444→492 |
+| V3.0G | V2.18 户外产品参数提取 | 7 品类 2,315 产品重跑 → net +187 params；新建充电灯 extractor（7/7 100%）；product_params 37,049→37,236 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **户外工厂-未判定** — 16 个文件需人工分类后归入对应品类
-2. **V4.1 参数筛选增强** — 可考虑把更多 param_key 暴露到产品库/报价筛选（例如 base、beam_angle、material）
+1. **V4.1 参数筛选增强** — 可考虑把更多 param_key 暴露到产品库/报价筛选（例如 base、beam_angle、material）
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -217,6 +221,9 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.17E-F — 价格列检测修复~~ ✅ 系统性误判修复，两轮迭代，报告 0 个 ⚠️
 - ~~V2.17G — 拆分导入 apply~~ ✅ commit 53dba12 — +266 产品 +330 offers；球泡 341、灯管 84
 - ~~V3.0F — 球泡/灯管参数提取~~ ✅ commit 1dccea0 — 球泡 100%、灯管 98.8%；product_params 37,049
+- ~~V2.18 — 户外工厂-未判定导入~~ ✅ commit 6dac394 — 18 文件导入 +64 products +64 offers；新品类充电灯；KCD-TB→太阳能壁灯
+- ~~V2.18B — 伊特 4.25 投光灯导入~~ ✅ commit cfc7abe — +44 products +44 offers +202 price_history
+- ~~V3.0G — V2.18 户外产品参数提取~~ ✅ commit e3fedea — 充电灯 7/7 100%；net +187 params；product_params 37,236
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -225,6 +232,9 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.14 Batch 3 新建风扇灯/工作灯/G4G9 三个品类，品类映射按计划执行：LED橱柜灯→橱柜灯、市电壁灯→壁灯、支架→线条灯
 - V3.0E 新品类覆盖：风扇灯 237/264（89.8%），工作灯 66/85（77.6%），G4G9 51/51（100%）
 - V3.0F 球泡 100% 覆盖（watts 95.9%/base 62.5%/size 54.3%），灯管 98.8% 覆盖（watts 82.1%/voltage 66.7%/lumens 48.8%）
+- V2.18 dry-run 审核发现 KCD-TB 文件样本是 Solar wall light，果断改归太阳能壁灯；伊特 4.25 分析确认为单一投光灯品类（292 行 YLT-TG163），V2.18B 单独导入
+- V2.18 needs-review 4 文件（R01/R03/R06/W12F-20W50W）全部检测失败：无型号列或 RMB 价格列，静默跳过，符合预期
+- V3.0G 充电灯 extractor 覆盖 7/7（watts 100%/material 100%/size 100%/beam_angle 57%/lumens 57%）
 - V3.0B 验证了 Batch 1 导入质量：remark 字段高度结构化（投光灯/路灯 Key:Value 格式），参数覆盖率 86%
 - V3.0C 覆盖 2,773/4,809（57.7%）目标产品；筒灯/三防灯/防潮灯覆盖较好，净化灯低覆盖主要因为大多数新增记录没有 remark/size
 - `extractCct`/`extractPf`/`extractLmW` 是可复用的通用函数，Batch 2 品类可直接用
