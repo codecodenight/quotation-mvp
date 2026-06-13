@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-13
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.2
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V4.4A)
+## Current State (after V4.5)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -37,11 +37,16 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 明确垃圾删除 (V2.19C): `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers (含 27 条挂在垃圾产品上的组外 offer) + 89 params + 2 price_history; 19 个垃圾产品有跨工厂额外 offer，说明污染扩散到了 offer 层
 - 部分垃圾逐条审计 (V2.19D): `scripts/partial-junk-audit.ts` 对 3 组 98 产品逐条标记 junk/suspect/keep; 审阅发现: 40 junk 确认删除, COB suspect 也删(共41); 2 个尼奥 LST-5050 suspect 保留(真产品但 price=芯片型号→V2.19E); 瑞鑫 keep 中 ~9 个是规格/材质文本不是产品名(也有价格问题→后续处理)
 - 价格异常调查 (V2.19E): `scripts/price-audit-v2.19e.ts` 调查 3 组; **伟润 578 产品 price=0 是假警报**——V2.19B 的 `CAST AS INTEGER` 把 <1 元铝型材单价截断成 0，实际全部有价格; 欧诺 22 产品价格偏低可能是 USD 不是 RMB; 尼奥 7 条确认价格错(芯片型号/灯珠数当价格)，remark 中可见真实价格(如 ￥3.72)
+- 多报价对比 + 推荐报价 (V4.5): `src/lib/offer-ranking.ts` 纯函数推荐排序（完整度 0-40 + 价格排名 0-30 + 时效 0-20）; 产品库 offer 表格增加推荐列 + badge（最低价/资料全/最新/推荐）+ 按推荐分排序; 报价中心搜索结果显示前 3 个推荐报价; 已选产品 offer 选择器从 `<select>` 改为可展开对比卡片; 新产品默认选推荐 offer; 单 offer 产品不显示 badge; `priceUpdatedAt` 脏数据容错; `OFFER_BADGE_META` 在产品库 Server Component 和报价中心 Client Component 间共享
+- PDF 文件盘点 + 入库索引 (V2.20): `scripts/pdf-inventory-v2.20.ts` 扫描 617 份 PDF，新增 584 条 + 更新 33 条 files 记录; 基于文件名/路径关键词分类为 7 类（quotation/catalog/spec/certificate-report/packaging-image/manual/other）; 73 份疑似报价 PDF 作为 V2.21 spike 候选; 分布：室内 279 / 户外 266 / 光源 39 / 灯带 33; 注意：73 候选有噪声（父目录含"价格"导致子文件误判），实际真正报价可能 30-40 份
+- PDF 可解析性 Spike (V2.21): `scripts/pdf-spike-v2.21.ts` 用 `pdfjs-dist@6.0.227` 对 16 份精选 PDF 做只读解析; 4 importable（普雅G4G9/普照防潮灯/普照三防灯A/杰莱特风扇灯，全部 RMB 工厂报价）、10 manual-review（3 份接近 importable 但 table 检测阈值太严、5 份 USD 客户报价、2 份有价格但结构模糊）、2 skip（扫描件零文字）; 关键结论：pdfjs-dist 文本+坐标提取可用，RMB 工厂报价 PDF 有清晰表格结构，USD PDF 全是 Welfull 发客户报价不应导入为采购价
 
-### Data (after V2.19D apply)
+### Data (after V2.20)
 - Products: 9,887 across 32 categories (V2.19A-D: -1,457 junk products cleaned)
 - Supplier offers: 10,941
-- Files (My Passport): 1,097+
+- Files in DB: 1,725 (was 1,141; +584 PDF records from V2.20)
+- PDF files in DB: 677 (was 93)
+- Files (My Passport): 1,215 Excel + 617 PDF
 - Price history: 9,899 records
 - Product images: 7,563 products have images
 - Product params: 37,236 (32 categories all have params; V3.0G added 187 net new params)
@@ -213,17 +218,18 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.19D | 部分垃圾逐条审计 | `scripts/partial-junk-audit.ts` 3 组 98 产品逐条标记；40 junk + 1 suspect(COB) = 41 确认删除；2 LST suspect 保留→V2.19E |
 | V2.19D-apply | 部分垃圾删除 | `scripts/junk-cleanup-v2.19d.ts` 删除 41 产品 + 44 offers + 63 params + 44 price_history；全局 9,928→9,887 |
 | V2.19E | 价格异常调查 | 伟润假警报（INT 截断）/欧诺疑似 USD/尼奥 7 条芯片型号价格；源文件全部存在 |
-| V2.19D-apply | 部分垃圾删除 | `scripts/junk-cleanup-v2.19d.ts` 删除 41 产品 + 44 offers + 63 params + 44 price_history；全局 9,928→9,887 产品 |
+| V4.5 | 多报价对比 + 推荐报价 | `offer-ranking.ts` 纯函数评分(完整度+价格+时效)；产品库 badge 列+推荐排序；报价中心搜索前3推荐+可展开对比卡片；默认选推荐 offer |
+| V2.20 | PDF 文件盘点 + 入库索引 | 617 份 PDF 扫描，584 新建+33 更新 files 记录；7 类分类（quotation 73/catalog 109/spec 105/certificate 130/packaging 44/manual 9/other 147）；73 候选有噪声，真正报价约 30-40 份 |
+| V2.21 | PDF 可解析性 Spike | pdfjs-dist 6.0.227 解析 16 份精选 PDF；4 importable（RMB 工厂报价）/ 10 manual-review / 2 skip（扫描件）；table 检测 y-coordinate 聚类有效但阈值偏严（3 份有价格但 table 未检出） |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **小修补（可选）** — 尼奥 7 条价格修正（芯片型号→真实价格）；瑞鑫 keep 中 ~9 条规格文本产品清理；欧诺价格货币确认
-2. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因
-3. **数据充实** — 683 个 likely-importable 文件中仍有大量未导入
-4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
+1. **V2.22 — PDF 报价导入器** — 只处理 importable 文本 PDF（普雅G4G9/普照防潮灯/普照三防灯A/杰莱特风扇灯）；流程类似 Excel（选文件→预览→映射→导入）；不碰 USD 客户报价、不碰扫描件、不做 OCR
+2. **V2.19F 小修补（按需）** — 尼奥 7 条价格修正；瑞鑫 ~9 条规格文本产品清理；欧诺价格货币确认
+3. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -257,6 +263,9 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.19D — 部分垃圾逐条审计~~ ✅ commit b9bf2e9 — 3 组 98 产品标记：40 junk + 3 suspect + 55 keep
 - ~~V2.19D apply — 部分垃圾删除~~ ✅ commit d25fd2e — 41 产品 + 44 offers 删除，全局 9,928→9,887
 - ~~V2.19E — 价格异常调查~~ ✅ commit fcdddbe — 伟润假警报(INT截断)、欧诺疑似USD、尼奥7条芯片价
+- ~~V4.5 — 多报价对比 + 推荐报价~~ ✅ commit 3ccead1 — offer-ranking 纯函数评分；产品库 badge 列+推荐排序；报价中心搜索前3+对比卡片；默认选推荐 offer
+- ~~V2.20 — PDF 文件盘点 + 入库索引~~ ✅ commit ed22666 — 617 PDF 扫描，584 新建+33 更新；73 候选报价 PDF 识别；files 表 1,141→1,725
+- ~~V2.21 — PDF 可解析性 Spike~~ ✅ commit d47f902 — pdfjs-dist 解析 16 PDF；4 importable / 10 manual-review / 2 skip
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
