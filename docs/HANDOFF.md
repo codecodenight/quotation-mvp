@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-14
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.23)
+## Current State (after V2.24)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -43,10 +43,11 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - PDF 报价导入 (V2.22): `scripts/pdf-import-v2.22.ts` + `scripts/pdf-import-profiles.ts` 采用 profile-based parser，导入 4 份 V2.21 确认的 RMB 工厂报价 PDF；+150 products +150 supplier_offers；保留 dry-run/apply 报告；源 PDF 只读
 - PDF 导入产品参数提取 (V3.0H): `scripts/extract-params.ts --target=v3h` 对 G4G9/防潮灯/三防灯/风扇灯重跑参数提取；1,036 target products → 951 products with params；product_params 37,045→37,432
 - PDF manual-review 再评估 (V2.23): `scripts/pdf-review-v2.23.ts` 对 V2.21 的 10 份 manual-review PDF 重新按多档 y-tolerance 聚类、价格/型号信号和 longest-run 评分；结果：1 份 profile-ready（普照三防灯双色管B）、5 份 custom-parser-review、4 份 USD/FOB 客户价明确排除；不写 DB、不导入、不做 OCR
+- PDF 小批量补导 (V2.24): `S06-puzhao-sanfang-b` profile 导入普照三防灯双色管B PDF；+6 products +6 supplier_offers；解析成品尺寸、CTN Qty、CTN L/W/H；源 PDF 只读；V2.22 导入器支持 `PDF_IMPORT_VERSION/PDF_IMPORT_SLUG`，避免覆盖历史报告
 
-### Data (after V2.23)
-- Products: 10,037 across 30 categories (V2.19A-D: -1,457 junk products cleaned; V2.22: +150 PDF products)
-- Supplier offers: 11,091
+### Data (after V2.24)
+- Products: 10,043 across 30 categories (V2.19A-D: -1,457 junk products cleaned; V2.22: +150 PDF products; V2.24: +6 PDF products)
+- Supplier offers: 11,097
 - Files in DB: 1,737 (includes Excel + PDF source records)
 - PDF files in DB: 677 (was 93)
 - Files (My Passport): 1,215 Excel + 617 PDF
@@ -227,16 +228,18 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.22 | PDF 报价导入 | profile-based parser 导入 4 份 V2.21 确认的 RMB 工厂报价 PDF；+150 products +150 supplier_offers；dry-run/apply 报告保留 |
 | V3.0H | PDF 导入产品参数提取 | G4G9/防潮灯/三防灯/风扇灯 1,036 产品重跑参数提取；951 产品有参数；product_params 37,045→37,432 |
 | V2.23 | PDF manual-review 再评估 | 10 份 V2.21 manual-review PDF 只读复审；1 profile-ready（普照三防灯双色管B）/ 5 custom-parser-review / 4 USD 客户价排除 |
+| V2.24 | PDF 小批量补导 | 只导入 V2.23 确认的 S06 普照三防灯双色管B；+6 products +6 offers；CTN Qty/L/W/H 同步写入 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.24 — PDF profile 导入（小批量）** — 先只导入 V2.23 确认的 `S06 普照三防灯/双色管B报价表_20250403205729.pdf`；它是 RMB 工厂价、型号+价格行稳定。继续保持 profile-based 脚本导入，不做通用 PDF UI。
-2. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser。
-3. **V2.19F 小修补（按需）** — 尼奥 7 条价格修正；瑞鑫 ~9 条规格文本产品清理；欧诺价格货币确认
-4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
+1. **V3.0I — V2.24 PDF 产品参数提取** — 三防灯新增 6 个产品当前 `product_params=0`，应重跑三防灯参数提取，让报价 Product Details 走参数化路径。
+2. **V2.25 — 普照三防灯旧价格异常审计** — V2.24 抽查发现 2025-10 Excel 来源的 `PZ-HP-B1/B2` 旧 offer 价格为 `1/2 RMB`，疑似序号/配置列被当价格；需只读审计后再决定修正/删除。
+3. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser。
+4. **V2.19F 小修补（按需）** — 尼奥 7 条价格修正；瑞鑫 ~9 条规格文本产品清理；欧诺价格货币确认
+5. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -276,6 +279,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.22 — PDF 报价导入~~ ✅ commit 8ee56d1 — 4 份 RMB 工厂报价 PDF 导入；+150 products +150 offers
 - ~~V3.0H — PDF 导入产品参数提取~~ ✅ G4G9/防潮灯/三防灯/风扇灯 重跑参数；product_params 37,045→37,432
 - ~~V2.23 — PDF manual-review 再评估~~ ✅ 10 份 manual-review PDF 只读复审；1 profile-ready / 5 custom-parser-review / 4 USD 客户价排除
+- ~~V2.24 — PDF 小批量补导~~ ✅ S06 普照三防灯双色管B PDF 导入；+6 products +6 offers；CTN Qty/L/W/H 写入
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -313,6 +317,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.19C 发现垃圾产品可能挂有组外 offer：54 个垃圾产品除了 5 组匹配的 54 条 offer，还有 27 条其他工厂/文件的 offer。删产品必须连同所有 offer 一起删。未来清理脚本都应检查目标产品的全部 offer，不仅是匹配组的 offer
 - V2.19E 伟润假警报教训：`CAST(purchase_price AS INTEGER)` 把 <1 元价格截断成 0，导致 V2.19B 报告"534 price=0"。实际上伟润是铝型材套件，单价 0.048-3.8 元/米完全正常。未来扫描脚本的价格统计不应用 INT 截断，改用 REAL 或保留原始精度
 - V2.23 复审结果说明：S06 普照三防灯双色管B是唯一可直接进入 V2.24 profile 导入的 manual-review PDF；S09/S13/S15/S16 都是 USD/FOB 客户价，继续严格排除，不得写入 `supplier_offers.purchase_price`；S14 同时含 RMB 与 USD，必须人工确认列语义后再写 parser
+- V2.24 导入器补强：普照三防灯 PDF parser 不再假设型号在第 1 列，改为行内查找 `PZ-`；型号清洗保留 `*`/`×`，避免 `PZ-HP-B-1*600` 被截断；remark 过滤 RMB 价格、尺寸和 CTN，避免 fallback 报价泄露采购价
+- V2.24 发现但未处理：DB 中已有 6 条 `PZ-HP-B1/B2` 普照三防灯旧 offer，价格为 `1/2 RMB`，source 指向 2025-10 Excel 文件；它们不是本次 S06 PDF 导入产生，需后续 V2.25 审计，不应在 V2.24 里盲删
 
 ### Not Now
 - 通用 PDF 导入 UI（当前只有少量 PDF 适合导入，先用 profile-based 脚本）

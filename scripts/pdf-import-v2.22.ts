@@ -39,6 +39,10 @@ type ImportRecord = {
   size: string | null;
   material: string | null;
   remark: string | null;
+  ctnQty: string | null;
+  ctnLength: string | null;
+  ctnWidth: string | null;
+  ctnHeight: string | null;
   sourceFilePath: string;
   rawValues: string[];
 };
@@ -100,8 +104,10 @@ const prisma = new PrismaClient();
 const ROOT = "/Volumes/My Passport/AI 报价/各家工厂最新报价汇总";
 const VOLUME_NAME = "My Passport";
 const BACKUP_DIR = "backups";
-const DRY_RUN_REPORT_PATH = "docs/v2.22-pdf-import-dryrun.md";
-const APPLY_REPORT_PATH = "docs/v2.22-pdf-import-result.md";
+const REPORT_VERSION = process.env.PDF_IMPORT_VERSION ?? "V2.22";
+const REPORT_SLUG = process.env.PDF_IMPORT_SLUG ?? REPORT_VERSION.toLowerCase();
+const DRY_RUN_REPORT_PATH = `docs/${REPORT_SLUG}-pdf-import-dryrun.md`;
+const APPLY_REPORT_PATH = `docs/${REPORT_SLUG}-pdf-import-result.md`;
 const PRICE_MIN = 0.01;
 const PRICE_MAX = 50_000;
 const runStartedAt = new Date();
@@ -343,16 +349,28 @@ function parsePuzhaoSanfang(profile: PdfImportProfile, rows: TableRow[]): Return
     { field: "wattage", headerText: "功率", columnIndex: 2 },
     { field: "purchasePrice", headerText: "含税单价", columnIndex: 3 },
     { field: "size", headerText: "灯体尺寸", columnIndex: 5 },
+    { field: "ctnSize", headerText: "外箱尺寸 cm", columnIndex: 6 },
+    { field: "ctnQty", headerText: "包装率", columnIndex: 7 },
     { field: "remark", headerText: "备注", columnIndex: 7 },
   ];
 
-  const groups = groupModelBlocks(rows, (row) => Boolean(cleanModelNo(row.values[0])?.startsWith("PZ-")));
+  const groups = groupModelBlocks(rows, (row) => row.values.some((value) => Boolean(cleanModelNo(value)?.startsWith("PZ-"))));
   for (const group of groups) {
     const main = group.rows[0];
-    const modelBase = cleanModelNo(main.values[0]);
-    const wattage = main.values[1] ?? null;
+    const modelIndex = main.values.findIndex((value) => Boolean(cleanModelNo(value)?.startsWith("PZ-")));
+    const modelBase = cleanModelNo(main.values[modelIndex]);
+    const wattage = findWattage(main.values.slice(modelIndex + 1));
     const modelNo = [modelBase, wattage].filter(Boolean).join(" ");
-    const price = parsePrice(main.values[2]);
+    const price = findPuzhaoSanfangPrice(main.values.slice(modelIndex + 1));
+    const dimensions = findDimensionValues(main.values.slice(modelIndex + 1));
+    const productSize = dimensions.length >= 2 ? dimensions[dimensions.length - 2] : dimensions[0] ?? null;
+    const ctnTriplet = dimensions.length >= 2 ? parseDimensionTriplet(dimensions[dimensions.length - 1]) : null;
+    const ctnQty = ctnTriplet ? findValueAfter(main.values, dimensions[dimensions.length - 1], isIntegerText) : null;
+    const material = findMaterial(main.values);
+    const hiddenRemarkValues = new Set(
+      [wattage, material, productSize, dimensions[dimensions.length - 1], ctnQty]
+        .filter((value): value is string => Boolean(value)),
+    );
 
     if (!modelBase || !isValidModelNo(modelNo)) {
       skippedRows.push(skip(group.startIndex, "产品型号无效", main.values));
@@ -366,15 +384,22 @@ function parsePuzhaoSanfang(profile: PdfImportProfile, rows: TableRow[]): Return
     const extraLines = group.rows
       .slice(1)
       .flatMap((row) => row.values)
-      .filter((value) => !/^\d+[：:]/.test(value));
+      .filter((value) => !/^\d+[：:]/.test(value))
+      .filter((value) => shouldKeepPdfRemarkValue(value, hiddenRemarkValues));
     const remarkParts = [
       wattage ? `Power: ${wattage}` : null,
-      ...main.values.slice(6),
+      material ? `Material: ${material}` : null,
+      ...main.values.slice(modelIndex + 1).filter((value) => shouldKeepPdfRemarkValue(value, hiddenRemarkValues)),
       ...extraLines,
     ].filter((value): value is string => Boolean(value));
 
     records.push(makeRecord(profile, group.startIndex, modelNo, price, {
-      size: findDimensionValue(main.values.slice(3)),
+      size: productSize,
+      material,
+      ctnQty,
+      ctnLength: ctnTriplet?.length ?? null,
+      ctnWidth: ctnTriplet?.width ?? null,
+      ctnHeight: ctnTriplet?.height ?? null,
       remark: remarkParts.join("\n") || null,
       rawValues: group.rows.flatMap((row) => row.values),
     }));
@@ -461,6 +486,9 @@ function makeRecord(
     material?: string | null;
     remark?: string | null;
     ctnQty?: string | null;
+    ctnLength?: string | null;
+    ctnWidth?: string | null;
+    ctnHeight?: string | null;
     rawValues: string[];
   },
 ): ImportRecord {
@@ -481,6 +509,10 @@ function makeRecord(
     size: cleanNullable(extras.size),
     material: cleanNullable(extras.material),
     remark: cleanNullable(extras.remark),
+    ctnQty: cleanNullable(extras.ctnQty),
+    ctnLength: cleanNullable(extras.ctnLength),
+    ctnWidth: cleanNullable(extras.ctnWidth),
+    ctnHeight: cleanNullable(extras.ctnHeight),
     sourceFilePath: profile.relativePath,
     rawValues: extras.rawValues,
   };
@@ -535,7 +567,7 @@ function cleanNullable(value: string | null | undefined): string | null {
 function cleanModelNo(value: string | null | undefined): string | null {
   const text = normalizeText(value ?? "");
   if (!text) return null;
-  const knownMatch = text.match(/(?:PY|PZ|JLT)-[A-Za-z0-9./+()±\-\s]+/i);
+  const knownMatch = text.match(/(?:PY|PZ|JLT)-[A-Za-z0-9./+()±*×\-\s]+/i);
   const model = knownMatch?.[0] ?? text;
   return model.replace(/^无频闪/i, "").replace(/[，,;；:：]+$/g, "").trim() || null;
 }
@@ -575,6 +607,21 @@ function findCurrencyPrice(values: string[]): number | null {
   return null;
 }
 
+function findPuzhaoSanfangPrice(values: string[]): number | null {
+  const currencyPrice = findCurrencyPrice(values);
+  if (isValidPrice(currencyPrice)) return currencyPrice;
+
+  for (const value of values) {
+    if (/\d+(?:\.\d+)?\s*W/i.test(value)) continue;
+    if (/\d+(?:\.\d+)?\s*[*×]\s*\d+/.test(value)) continue;
+    if (!/^\d{1,4}\.\d{1,2}$/.test(normalizeText(value))) continue;
+    const price = parsePrice(value);
+    if (isValidPrice(price)) return price;
+  }
+
+  return null;
+}
+
 function parseCurrencyPrice(value: string | null | undefined): number | null {
   const text = normalizeText(value ?? "");
   const match = text.match(/[¥￥]\s*(\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?)/);
@@ -601,8 +648,40 @@ function findSizeNearModel(values: string[], modelCellIndex: number): string | n
   return before.find((value) => /[ФØ]?\d+(?:\.\d+)?\s*[*×]\s*\d+|[ФØ]\d+/.test(value)) ?? null;
 }
 
-function findDimensionValue(values: string[]): string | null {
-  return values.find((value) => /\d+(?:\.\d+)?\s*[*×]\s*\d+/.test(value)) ?? null;
+function findDimensionValues(values: string[]): string[] {
+  return values.filter((value) => /\d+(?:\.\d+)?\s*[*×]\s*\d+(?:\s*[*×]\s*\d+(?:\.\d+)?)?/.test(value));
+}
+
+function parseDimensionTriplet(value: string | null | undefined): { length: string; width: string; height: string } | null {
+  const parts = normalizeText(value ?? "")
+    .split(/[xX*×]/)
+    .map((part) => part.match(/\d+(?:\.\d+)?/)?.[0] ?? null)
+    .filter((part): part is string => Boolean(part));
+  if (parts.length !== 3) return null;
+  return { length: parts[0], width: parts[1], height: parts[2] };
+}
+
+function findValueAfter(values: string[], anchor: string | null | undefined, predicate: (value: string) => boolean): string | null {
+  if (!anchor) return null;
+  const index = values.findIndex((value) => value === anchor);
+  if (index < 0) return null;
+  return values.slice(index + 1).find(predicate) ?? null;
+}
+
+function isIntegerText(value: string): boolean {
+  return /^\d{1,5}$/.test(normalizeText(value));
+}
+
+function findMaterial(values: string[]): string | null {
+  return values.find((value) => /(PC|铝|铝材|ABS|端盖|一体)/i.test(value) && !/[¥￥]\s*\d/.test(value)) ?? null;
+}
+
+function shouldKeepPdfRemarkValue(value: string, hiddenValues: Set<string>): boolean {
+  if (hiddenValues.has(value)) return false;
+  if (parsePrice(value) != null) return false;
+  if (/^\d{1,5}$/.test(value)) return false;
+  if (/\d+(?:\.\d+)?\s*[*×]\s*\d+/.test(value)) return false;
+  return true;
 }
 
 function findWattage(values: string[]): string | null {
@@ -855,10 +934,10 @@ async function applyProfiles(results: ProfileRunResult[]): Promise<{ backupPath:
             purchasePrice: record.purchasePrice.toFixed(2),
             currency: record.currency,
             moq: record.moq,
-            ctnQty: null,
-            ctnLength: null,
-            ctnWidth: null,
-            ctnHeight: null,
+            ctnQty: record.ctnQty,
+            ctnLength: record.ctnLength,
+            ctnWidth: record.ctnWidth,
+            ctnHeight: record.ctnHeight,
             sourceFileId: result.sourceFileId,
             remark: null,
           },
@@ -895,7 +974,7 @@ async function applyProfiles(results: ProfileRunResult[]): Promise<{ backupPath:
 async function backupDatabase(): Promise<string> {
   mkdirSync(BACKUP_DIR, { recursive: true });
   const timestamp = timestampForFile();
-  const backupPath = path.join(BACKUP_DIR, `dev-before-v2.22-pdf-${timestamp}.sqlite`);
+  const backupPath = path.join(BACKUP_DIR, `dev-before-${REPORT_SLUG}-pdf-${timestamp}.sqlite`);
   await copyFile("prisma/dev.db", backupPath);
   return backupPath;
 }
@@ -917,7 +996,7 @@ async function getCounts(): Promise<Counts> {
 
 function writeDryRunReport(results: ProfileRunResult[], beforeCounts: Counts): void {
   const lines = buildReport({
-    title: "V2.22 — PDF 报价导入 Dry-Run 报告",
+    title: `${REPORT_VERSION} — PDF 报价导入 Dry-Run 报告`,
     mode: "dry-run",
     results,
     beforeCounts,
@@ -929,7 +1008,7 @@ function writeDryRunReport(results: ProfileRunResult[], beforeCounts: Counts): v
 
 function writeApplyReport(results: ProfileRunResult[], beforeCounts: Counts, afterCounts: Counts, backupPath: string): void {
   const lines = buildReport({
-    title: "V2.22 — PDF 报价导入结果",
+    title: `${REPORT_VERSION} — PDF 报价导入结果`,
     mode: "apply",
     results,
     beforeCounts,
@@ -1008,10 +1087,10 @@ function buildReport({
       "",
       "### Parsed Records",
       "",
-      "| # | Model | Price | MOQ | Size | Status | Old Price | Remark |",
-      "|---:|---|---:|---|---|---|---:|---|",
+      "| # | Model | Price | MOQ | Size | CTN Qty | CTN L/W/H | Status | Old Price | Remark |",
+      "|---:|---|---:|---|---|---|---|---|---:|---|",
       ...result.plannedRecords.map((record, index) =>
-        `| ${index + 1} | ${escapeMd(record.modelNo)} | ${record.purchasePrice.toFixed(2)} | ${escapeMd(record.moq)} | ${escapeMd(record.size)} | ${record.status} | ${record.oldPrice == null ? "-" : record.oldPrice.toFixed(2)} | ${escapeMd(record.remark)} |`
+        `| ${index + 1} | ${escapeMd(record.modelNo)} | ${record.purchasePrice.toFixed(2)} | ${escapeMd(record.moq)} | ${escapeMd(record.size)} | ${escapeMd(record.ctnQty)} | ${escapeMd(formatCtn(record))} | ${record.status} | ${record.oldPrice == null ? "-" : record.oldPrice.toFixed(2)} | ${escapeMd(record.remark)} |`
       ),
       "",
       "### Skipped Rows",
@@ -1034,6 +1113,11 @@ function buildReport({
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function formatCtn(record: Pick<ImportRecord, "ctnLength" | "ctnWidth" | "ctnHeight">): string | null {
+  if (!record.ctnLength || !record.ctnWidth || !record.ctnHeight) return null;
+  return `${record.ctnLength} × ${record.ctnWidth} × ${record.ctnHeight}`;
 }
 
 async function main(): Promise<void> {
