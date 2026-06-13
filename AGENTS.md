@@ -192,6 +192,7 @@ Phase 1 and Phase 2 may be done together.
 | V4.4A | 数据质量仪表盘（/data-quality 只读覆盖率页面） | ✓ |
 | V2.19A-0 | 瑞雪净化灯污染审计（1,368 垃圾产品确认，安全删除） | ✓ |
 | V2.19A-1 | 瑞雪净化灯垃圾删除（-1,362 产品/offers，净化灯覆盖 11%→83%） | ✓ |
+| V2.19B | 全品类污染扫描（3🔴 + 11🟡，误报 4 组已排除） | ✓ |
 
 ### Current Data (after V2.19A Step 1)
 

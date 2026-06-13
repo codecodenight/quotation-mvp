@@ -33,6 +33,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Data quality dashboard (V4.4A): `/data-quality` read-only page with per-category coverage metrics (products, offers, images, params, size, CTN); 4 parallel SQL aggregations via `prisma.$queryRaw`; three-color coverage encoding (≥80% green, 40-79% amber, <40% red); category names link to `/products?category=XXX`
 - 瑞雪净化灯污染审计 (V2.19A Step 0): `scripts/ruixue-audit.ts` read-only audit confirmed 1,368 junk products from "瑞雪报价2023.8.31 - 净化灯-.xlsx" — product names are numeric codes, prices are MOQ tiers (1000/3000/5000/10000), zero remark/size; quote_items=0, safe to delete; 6 legitimate products (T8AP60/T8GlassAC60/T8PC90 系列) with real names+images must be excluded from deletion; after cleanup predicted: 图片 11%→83%, 参数 12%→98%, Size 12%→96%, CTN 9%→73%
 - 瑞雪净化灯垃圾删除 (V2.19A Step 1): `scripts/ruixue-cleanup.ts` with --dry-run/--apply modes; deleted 1,362 products + 1,362 offers + 4 params; preserved 6 T8 products; deletion scope adjusted from task spec's `NOT GLOB '*[a-zA-Z]*'`(only 852 hits) to `image_path IS NULL`(1,362 hits) because junk names like `1000pom/1000eco` contain letters; backup at `backups/dev-before-v2.19a-step1-20260613-202132.sqlite`
+- 全品类污染扫描 (V2.19B): `scripts/pollution-scan.ts` scored 198 category×factory groups; 3🔴 (吸顶灯-力音/面板灯-侧发光核价/线条灯-广交会) + 11🟡; 人工审阅确认 5 组明确垃圾(54产品)、3 组部分垃圾(98产品需精细过滤)、4 组误报(G4G9旭航/Highbay隆景/G4G9核价/风扇灯鸿烁)、1 组需调查(伟润578产品price=0)
 
 ### Data (after V2.19A Step 1)
 - Products: 9,982 across 32 categories (净化灯 1,559→197 after V2.19A cleanup)
@@ -204,15 +205,19 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V4.4A | 数据质量仪表盘 | `/data-quality` 只读页面；4 个并行 SQL 查询按品类统计图片/参数/Size/CTN 覆盖率；三色编码 + 品类跳转 |
 | V2.19A-0 | 瑞雪净化灯污染审计 | `scripts/ruixue-audit.ts` 确认 1,368 垃圾产品（数字名、MOQ 价格、零 remark/size）；quote_items=0 安全删除；6 个正常产品需排除 |
 | V2.19A-1 | 瑞雪净化灯垃圾删除 | `scripts/ruixue-cleanup.ts` 删除 1,362 产品+offers+4 params；保留 6 个 T8 产品；净化灯覆盖率跃升（图片 83%/参数 95%/Size 93%/CTN 71%）；全局 11,344→9,982 产品 |
+| V2.19B | 全品类污染扫描 | `scripts/pollution-scan.ts` 扫描 198 组 category×factory；3🔴+11🟡；审阅后分流：5 组明确垃圾→V2.19C、3 组部分垃圾→V2.19D、伟润 price=0→V2.19E、4 组误报不动 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因；评估剩余 likely-importable 净化灯文件是否值得导入
-3. **数据充实** — 683 个 likely-importable 文件中仍有大量未导入；参数覆盖率可通过源文件二次提取提升
-4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
+1. **V2.19C: 明确垃圾删除** — 5 组 54 产品（吸顶灯-力音/面板灯-侧发光/线条灯-广交会/轨道灯-Wellux/灯带-迪闻）
+2. **V2.19D: 部分垃圾逐条审计** — 3 组 98 产品（灯带-尼奥/面板灯-瑞鑫/工作灯-启阳）逐产品标记后删除
+3. **V2.19E: 伟润 price=0 调查** — 578 产品价格丢失专项，方向是修复不是删除
+4. **V2.19A Step 2-3: 净化灯源文件审查 + 补导** — 审查瑞雪原始 Excel 确认列错位原因
+5. **数据充实** — 683 个 likely-importable 文件中仍有大量未导入
+6. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -241,6 +246,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V4.4A — 数据质量仪表盘~~ ✅ commit 12e6428 — /data-quality 页面，30 个品类覆盖率一览
 - ~~V2.19A Step 0 — 瑞雪净化灯污染审计~~ ✅ commit 61ad1ce — 1,368 垃圾产品确认，quote_items=0 安全删除，6 个正常产品需排除
 - ~~V2.19A Step 1 — 瑞雪净化灯垃圾删除~~ ✅ commit 9ffe2f1 — 1,362 产品+offers 删除，6 个 T8 产品保留，净化灯图片 11%→83%
+- ~~V2.19B — 全品类污染扫描~~ ✅ commit de1d24f — 198 组扫描，3🔴+11🟡，审阅分流到 V2.19C/D/E
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
