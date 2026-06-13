@@ -62,6 +62,11 @@ const TARGET_CATEGORY_CONFIGS = {
     categories: ["球泡", "灯管"],
     defaultReport: "docs/v3.0f-dry-run-report.md",
   },
+  v3g: {
+    title: "V3.0G",
+    categories: ["充电灯", "投光灯", "面板灯", "太阳能壁灯", "路灯", "工作灯", "Highbay"],
+    defaultReport: "docs/v3.0g-dry-run-report.md",
+  },
 } as const;
 
 const targetConfig = readTargetConfig();
@@ -148,7 +153,7 @@ function readTargetConfig() {
   const target = readArg("--target") ?? "v3c";
   const config = TARGET_CATEGORY_CONFIGS[target as keyof typeof TARGET_CATEGORY_CONFIGS];
   if (!config) {
-    throw new Error(`Unknown extraction target: ${target}. Use --target=v3b, --target=v3c, --target=v3d, --target=v3e or --target=v3f.`);
+    throw new Error(`Unknown extraction target: ${target}. Use --target=v3b, --target=v3c, --target=v3d, --target=v3e, --target=v3f or --target=v3g.`);
   }
   return config;
 }
@@ -330,6 +335,9 @@ function extractProductParams(product: ProductForExtraction, category: TargetCat
       break;
     case "G4G9":
       params.push(...extractG4G9Params(product));
+      break;
+    case "充电灯":
+      params.push(...extractChargingLightParams(product));
       break;
   }
 
@@ -1148,6 +1156,39 @@ function extractWorkLightParams(product: ProductForExtraction): ExtractedParam[]
   params.push(...extractWarranty(remark, "remark"));
   params.push(...extractCertification(remark, "remark"));
 
+  return params;
+}
+
+function extractChargingLightParams(product: ProductForExtraction): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const remark = readSource(product, "remark");
+
+  for (const sourceField of ["model_no", "product_name", "remark"] as SourceField[]) {
+    params.push(...extractWatts(readSource(product, sourceField), sourceField));
+  }
+  params.push(...extractLabeledWatts(remark, "remark"));
+  params.push(...extractVoltage(remark, "remark"));
+  params.push(...extractLumens(remark, "remark"));
+  params.push(...extractLumensLoose(remark, "remark"));
+  params.push(...extractBeamAngles(remark, "remark"));
+  params.push(...extractCct(remark, "remark"));
+  params.push(...extractLabeledCct(remark, "remark"));
+  params.push(...extractLabeledMaterial(remark, "remark"));
+  params.push(...extractChineseMaterial(remark, "remark"));
+  params.push(...extractPf(remark, "remark"));
+  params.push(...extractRemarkSizeParams(remark));
+  params.push(...extractChargingLightSizeParams(remark));
+
+  return params;
+}
+
+function extractChargingLightSizeParams(value: string): ExtractedParam[] {
+  const params: ExtractedParam[] = [];
+  const regex =
+    /(?:产品尺寸|Product\s*Size|Size)\s*(?:[（(]\s*(?:MM|mm|CM|cm)\s*[）)])?\s*[:：]\s*([φΦøØ]?\s*\d+(?:\.\d+)?(?:\s*[×xX*]\s*\d+(?:\.\d+)?){1,2}\s*(?:mm|MM|cm|CM)?)/gi;
+  for (const match of value.matchAll(regex)) {
+    params.push(...extractCommonSizeParams(match[1], "remark"));
+  }
   return params;
 }
 
