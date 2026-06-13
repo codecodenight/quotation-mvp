@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  BarChart3,
   Files,
   FileSpreadsheet,
   FolderSearch,
@@ -17,6 +18,7 @@ const navItems = [
   { href: "/import", label: "Excel 导入", icon: FileSpreadsheet },
   { href: "/triage", label: "产品整理", icon: ListChecks },
   { href: "/quotes", label: "报价中心", icon: ReceiptText },
+  { href: "/data-quality", label: "数据质量", icon: BarChart3 },
 ];
 
 export function Sidebar() {
