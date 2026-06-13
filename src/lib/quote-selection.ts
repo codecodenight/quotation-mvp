@@ -1,4 +1,5 @@
 import type { ProductParamDisplay } from "@/lib/product-param-display";
+import { rankOffers } from "@/lib/offer-ranking";
 
 export type QuoteSelectionOffer = {
   id: string;
@@ -10,6 +11,9 @@ export type QuoteSelectionOffer = {
   ctnLength: string | null;
   ctnWidth: string | null;
   ctnHeight: string | null;
+  leadTime?: string | null;
+  remark?: string | null;
+  priceUpdatedAt?: string | null;
 };
 
 export type QuoteSelectionProduct = {
@@ -118,8 +122,9 @@ export function buildReusableQuoteDraft(input: ReusableQuoteDraftInput): Reusabl
       continue;
     }
 
+    const recommendedOfferId = getRecommendedOfferId(product);
     const currentOfferStillExists = product.supplierOffers.some((offer) => offer.id === item.supplierOfferId);
-    const selectedOfferId = currentOfferStillExists ? item.supplierOfferId ?? product.supplierOffers[0].id : product.supplierOffers[0].id;
+    const selectedOfferId = currentOfferStillExists ? item.supplierOfferId ?? recommendedOfferId : recommendedOfferId;
     if (item.supplierOfferId && !currentOfferStillExists) {
       warnings.push(`${product.productName}：原供应商报价已变更，已改用当前第一条报价。`);
     }
@@ -158,7 +163,7 @@ export function serializeReusableQuoteDraft(
 export function createSelectedQuoteItem(product: QuoteSelectionProduct): SelectedQuoteItem {
   return {
     product,
-    selectedOfferId: product.supplierOffers[0]?.id ?? "",
+    selectedOfferId: getRecommendedOfferId(product),
     quantity: "1",
     remark: "",
   };
@@ -209,4 +214,9 @@ function normalizeCurrency(value: string): string {
 
 function normalizeModelNo(value: string | null): string {
   return value?.trim().toUpperCase() ?? "";
+}
+
+function getRecommendedOfferId(product: QuoteSelectionProduct): string {
+  const ranked = rankOffers(product.supplierOffers);
+  return ranked[0]?.offerId ?? product.supplierOffers[0]?.id ?? "";
 }

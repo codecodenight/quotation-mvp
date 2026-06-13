@@ -3,6 +3,7 @@ import { PackagePlus, Pencil, Plus, Trash2 } from "lucide-react";
 import Image from "next/image";
 
 import { formatMoney } from "@/lib/format";
+import { OFFER_BADGE_META, rankOffers, type OfferBadge } from "@/lib/offer-ranking";
 import { prisma } from "@/lib/prisma";
 import { getCategoryOptions, getCctOptions, getIpOptions, getProductIdsByWattsRange, parseOptionalNonNegativeDecimal } from "@/lib/product-filters";
 import { formatParamLabel, sortDisplayParams, type ProductParamDisplay } from "@/lib/product-param-display";
@@ -75,6 +76,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
           ctnWidth: true,
           ctnHeight: true,
           leadTime: true,
+          priceUpdatedAt: true,
           sourceFileId: true,
           remark: true,
           sourceFile: { select: { fileName: true } },
@@ -215,6 +217,16 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       <section className="space-y-4">
         {products.map((product) => {
           const qualityIssues = buildProductQualityIssueSummary(product);
+          const offerScores = product.supplierOffers.length > 1 ? rankOffers(product.supplierOffers) : [];
+          const scoreByOfferId = new Map(offerScores.map((score) => [score.offerId, score]));
+          const offerById = new Map(product.supplierOffers.map((offer) => [offer.id, offer]));
+          const rankedOffers =
+            product.supplierOffers.length > 1
+              ? offerScores.flatMap((score) => {
+                  const offer = offerById.get(score.offerId);
+                  return offer ? [offer] : [];
+                })
+              : product.supplierOffers;
 
           return (
             <article
@@ -292,61 +304,72 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="bg-[#ebe5d8] text-xs uppercase tracking-[0.08em] text-stone-600">
                   <tr>
+                    <th className="px-3 py-3">推荐</th>
                     <th className="px-3 py-3">工厂</th>
                     <th className="px-3 py-3">采购价</th>
                     <th className="px-3 py-3">MOQ</th>
                     <th className="px-3 py-3">CTN</th>
                     <th className="px-3 py-3">交期</th>
+                    <th className="px-3 py-3">更新</th>
                     <th className="px-3 py-3">来源文件</th>
                     <th className="px-3 py-3">备注</th>
                     <th className="px-3 py-3">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line bg-white">
-                  {product.supplierOffers.map((offer) => (
-                    <tr key={offer.id} className="align-top">
-                      <td className="px-3 py-3 font-medium">{offer.factoryName}</td>
-                      <td className="whitespace-nowrap px-3 py-3">
-                        {formatMoney(offer.purchasePrice, offer.currency)}
-                      </td>
-                      <td className="px-3 py-3 text-stone-700">{offer.moq ?? "-"}</td>
-                      <td className="whitespace-nowrap px-3 py-3 text-stone-700">
-                        <div>{offer.ctnQty ? `Qty ${offer.ctnQty}` : "-"}</div>
-                        <div className="mt-1 text-xs text-stone-500">
-                          {formatCtnDimensions(offer.ctnLength, offer.ctnWidth, offer.ctnHeight)}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-stone-700">{offer.leadTime ?? "-"}</td>
-                      <td className="max-w-72 px-3 py-3 text-xs text-stone-600">
-                        {offer.sourceFile?.fileName ?? "-"}
-                      </td>
-                      <td className="max-w-72 px-3 py-3 text-stone-700">{offer.remark ?? "-"}</td>
-                      <td className="min-w-64 px-3 py-3">
-                        <details className="mb-2 rounded-md border border-line p-2">
-                          <summary className="cursor-pointer list-none text-xs font-semibold text-leaf">
-                            编辑报价
-                          </summary>
-                          <OfferForm
-                            action={updateSupplierOffer}
-                            productId={product.id}
-                            offer={offer}
-                            sourceFiles={sourceFiles}
-                            submitLabel="更新报价"
-                          />
-                        </details>
-                        <form action={deleteSupplierOffer}>
-                          <input type="hidden" name="id" value={offer.id} />
-                          <button className="inline-flex h-8 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700">
-                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                            删除报价
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  ))}
+                  {rankedOffers.map((offer) => {
+                    const score = scoreByOfferId.get(offer.id);
+                    return (
+                      <tr key={offer.id} className="align-top">
+                        <td className="min-w-24 px-3 py-3">
+                          <OfferBadgeList badges={score?.badges ?? []} />
+                        </td>
+                        <td className="px-3 py-3 font-medium">{offer.factoryName}</td>
+                        <td className="whitespace-nowrap px-3 py-3">
+                          {formatMoney(offer.purchasePrice, offer.currency)}
+                        </td>
+                        <td className="px-3 py-3 text-stone-700">{offer.moq ?? "-"}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-stone-700">
+                          <div>{offer.ctnQty ? `Qty ${offer.ctnQty}` : "-"}</div>
+                          <div className="mt-1 text-xs text-stone-500">
+                            {formatCtnDimensions(offer.ctnLength, offer.ctnWidth, offer.ctnHeight)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-stone-700">{offer.leadTime ?? "-"}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-xs text-stone-600">
+                          {formatOfferUpdatedAt(offer.priceUpdatedAt)}
+                        </td>
+                        <td className="max-w-72 px-3 py-3 text-xs text-stone-600">
+                          {offer.sourceFile?.fileName ?? "-"}
+                        </td>
+                        <td className="max-w-72 px-3 py-3 text-stone-700">{offer.remark ?? "-"}</td>
+                        <td className="min-w-64 px-3 py-3">
+                          <details className="mb-2 rounded-md border border-line p-2">
+                            <summary className="cursor-pointer list-none text-xs font-semibold text-leaf">
+                              编辑报价
+                            </summary>
+                            <OfferForm
+                              action={updateSupplierOffer}
+                              productId={product.id}
+                              offer={offer}
+                              sourceFiles={sourceFiles}
+                              submitLabel="更新报价"
+                            />
+                          </details>
+                          <form action={deleteSupplierOffer}>
+                            <input type="hidden" name="id" value={offer.id} />
+                            <button className="inline-flex h-8 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700">
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              删除报价
+                            </button>
+                          </form>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {product.supplierOffers.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-stone-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-stone-500" colSpan={10}>
                         暂无工厂报价
                       </td>
                     </tr>
@@ -768,6 +791,55 @@ function buildProductsHref(filters: ReturnType<typeof normalizeFilters>, quality
 
 function isPositiveDecimal(value: string): boolean {
   return /^\d+(\.\d+)?$/.test(value) && Number(value) > 0;
+}
+
+function OfferBadgeList({ badges }: { badges: OfferBadge[] }) {
+  if (badges.length === 0) {
+    return <span className="text-xs text-stone-400">-</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {sortOfferBadges(badges).map((badge) => {
+        const meta = OFFER_BADGE_META[badge];
+        return (
+          <span key={badge} className={`rounded border px-1.5 py-0.5 text-xs font-semibold ${meta.className}`}>
+            {meta.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function sortOfferBadges(badges: OfferBadge[]): OfferBadge[] {
+  const order: OfferBadge[] = ["recommended", "lowest-price", "most-complete", "newest"];
+  return [...badges].sort((left, right) => order.indexOf(left) - order.indexOf(right));
+}
+
+function formatOfferUpdatedAt(value: Date | string | null): string {
+  if (value == null) {
+    return "-";
+  }
+
+  try {
+    const date = value instanceof Date ? value : new Date(value);
+    const timestamp = date.getTime();
+    if (!Number.isFinite(timestamp)) {
+      return "-";
+    }
+
+    const ageInDays = Math.max(0, Math.floor((Date.now() - timestamp) / (24 * 60 * 60 * 1000)));
+    if (ageInDays < 30) {
+      return ageInDays <= 0 ? "今天" : `${ageInDays}天前`;
+    }
+    if (ageInDays < 365) {
+      return `${Math.floor(ageInDays / 30)}个月前`;
+    }
+    return date.toISOString().slice(0, 10);
+  } catch {
+    return "-";
+  }
 }
 
 function formatCtnDimensions(length: string | null, width: string | null, height: string | null): string {

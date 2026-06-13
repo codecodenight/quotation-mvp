@@ -236,6 +236,20 @@ export async function reuseQuote(quoteId: string): Promise<SerializedReusableQuo
     where: productLookup.length > 0 ? { OR: productLookup } : { id: "__no_products__" },
     include: {
       supplierOffers: {
+        select: {
+          id: true,
+          factoryName: true,
+          purchasePrice: true,
+          currency: true,
+          moq: true,
+          ctnQty: true,
+          ctnLength: true,
+          ctnWidth: true,
+          ctnHeight: true,
+          leadTime: true,
+          remark: true,
+          priceUpdatedAt: true,
+        },
         orderBy: [{ factoryName: "asc" }, { createdAt: "desc" }],
       },
     },
@@ -445,6 +459,9 @@ function serializeQuoteSelectionProduct(
       ctnLength: string | null;
       ctnWidth: string | null;
       ctnHeight: string | null;
+      leadTime: string | null;
+      remark: string | null;
+      priceUpdatedAt: Date | null;
     }>;
   },
 ): QuoteSelectionProduct {
@@ -465,6 +482,16 @@ function serializeQuoteSelectionProduct(
       ctnLength: offer.ctnLength,
       ctnWidth: offer.ctnWidth,
       ctnHeight: offer.ctnHeight,
+      leadTime: offer.leadTime,
+      remark: offer.remark,
+      priceUpdatedAt: serializePriceUpdatedAt(offer.priceUpdatedAt),
     })),
   };
+}
+
+function serializePriceUpdatedAt(value: string | Date | null): string | null {
+  if (value == null) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : value;
 }

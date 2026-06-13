@@ -18,6 +18,9 @@ type QuoteProductResult = Prisma.ProductGetPayload<{
         ctnLength: true;
         ctnWidth: true;
         ctnHeight: true;
+        leadTime: true;
+        remark: true;
+        priceUpdatedAt: true;
       };
     };
     params: {
@@ -108,6 +111,9 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
               ctnLength: true,
               ctnWidth: true,
               ctnHeight: true,
+              leadTime: true,
+              remark: true,
+              priceUpdatedAt: true,
             },
             orderBy: [{ factoryName: "asc" }, { createdAt: "desc" }],
             take: 20,
@@ -159,6 +165,9 @@ function serializeProduct(product: QuoteProductResult): QuoteProductOption {
       ctnLength: offer.ctnLength,
       ctnWidth: offer.ctnWidth,
       ctnHeight: offer.ctnHeight,
+      leadTime: offer.leadTime,
+      remark: offer.remark,
+      priceUpdatedAt: offer.priceUpdatedAt?.toISOString() ?? null,
     })),
     displayParams: product.params.map((param) => ({
       paramKey: param.paramKey,

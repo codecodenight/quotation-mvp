@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
 import { formatDateTime, formatMoney } from "@/lib/format";
+import { OFFER_BADGE_META, rankOffers, type OfferBadge, type OfferScore } from "@/lib/offer-ranking";
 import { formatParamLabel, sortDisplayParams } from "@/lib/product-param-display";
 import { buildQuoteHealth, type CategorizedWarning, type QuoteProductHealth, type WarningTier } from "@/lib/quote-health";
 import {
@@ -612,6 +613,19 @@ function SelectedProductsTable({
   onRemove: (productId: string) => void;
 }) {
   const items = Array.from(selectedItems.values());
+  const [expandedOfferProducts, setExpandedOfferProducts] = useState<Set<string>>(new Set());
+
+  function toggleOfferList(productId: string) {
+    setExpandedOfferProducts((current) => {
+      const next = new Set(current);
+      if (next.has(productId)) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      return next;
+    });
+  }
 
   return (
     <section className="rounded-md border border-line bg-paper shadow-panel">
@@ -641,6 +655,10 @@ function SelectedProductsTable({
               const product = item.product;
               const selectedOffer = resolveSelectedOffer(item);
               const health = buildQuoteHealth(withSizeParamSignal(product));
+              const rankedOffers = rankOffers(product.supplierOffers);
+              const offerById = new Map(product.supplierOffers.map((offer) => [offer.id, offer]));
+              const selectedScore = rankedOffers.find((score) => score.offerId === item.selectedOfferId);
+              const isExpanded = expandedOfferProducts.has(product.id);
 
               return (
                 <tr key={product.id} className="align-top">
@@ -650,26 +668,22 @@ function SelectedProductsTable({
                     <QuoteParamTags product={product} />
                   </td>
                   <td className="min-w-72 px-3 py-3">
-                    <select
-                      value={item.selectedOfferId}
-                      className={selectClass}
-                      onChange={(event) =>
+                    <SelectedOfferPicker
+                      offers={product.supplierOffers}
+                      rankedOffers={rankedOffers}
+                      offerById={offerById}
+                      selectedOfferId={item.selectedOfferId}
+                      selectedOffer={selectedOffer}
+                      selectedScore={selectedScore}
+                      expanded={isExpanded}
+                      onToggle={() => toggleOfferList(product.id)}
+                      onSelect={(offerId) =>
                         onUpdate(product.id, (current) => ({
                           ...current,
-                          selectedOfferId: event.target.value,
+                          selectedOfferId: offerId,
                         }))
                       }
-                    >
-                      {product.supplierOffers.map((offer) => (
-                        <option key={offer.id} value={offer.id}>
-                          {offer.factoryName} / {formatMoney(offer.purchasePrice, offer.currency)}
-                          {offer.moq ? ` / MOQ ${offer.moq}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 text-xs text-stone-500">
-                      {selectedOffer ? `采购币种 ${selectedOffer.currency}` : "未选择报价"}
-                    </div>
+                    />
                   </td>
                   <td className="w-28 px-3 py-3">
                     <input
@@ -767,6 +781,8 @@ function ProductSelectionTable({
             {products.map((product) => {
               const health = buildQuoteHealth(withSizeParamSignal(product));
               const isSelected = selectedProductIds.has(product.id);
+              const rankedOffers = rankOffers(product.supplierOffers);
+              const offerById = new Map(product.supplierOffers.map((offer) => [offer.id, offer]));
 
               return (
                 <tr key={product.id} className="align-top">
@@ -798,11 +814,7 @@ function ProductSelectionTable({
                   <td className="min-w-72 px-3 py-3">
                     {product.supplierOffers.length > 0 ? (
                       <>
-                        <div className="font-medium text-ink">{product.supplierOffers.length} 条供应商报价</div>
-                        <div className="mt-1 text-xs text-stone-600">
-                          默认：{product.supplierOffers[0].factoryName} /{" "}
-                          {formatMoney(product.supplierOffers[0].purchasePrice, product.supplierOffers[0].currency)}
-                        </div>
+                        <RankedOfferSummary rankedOffers={rankedOffers} offerById={offerById} />
                         <QuoteOfferHealthList health={health} />
                       </>
                     ) : (
@@ -835,6 +847,175 @@ function ProductSelectionTable({
       </div>
     </section>
   );
+}
+
+function SelectedOfferPicker({
+  offers,
+  rankedOffers,
+  offerById,
+  selectedOfferId,
+  selectedOffer,
+  selectedScore,
+  expanded,
+  onToggle,
+  onSelect,
+}: {
+  offers: QuoteProductOption["supplierOffers"];
+  rankedOffers: OfferScore[];
+  offerById: Map<string, QuoteProductOption["supplierOffers"][number]>;
+  selectedOfferId: string;
+  selectedOffer: QuoteProductOption["supplierOffers"][number] | null;
+  selectedScore: OfferScore | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+  onSelect: (offerId: string) => void;
+}) {
+  if (!selectedOffer) {
+    return <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-800">未选择报价</div>;
+  }
+
+  return (
+    <div>
+      <div className="rounded-md border border-line bg-white p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-ink">{selectedOffer.factoryName}</span>
+              <span className="font-semibold text-ink">{formatMoney(selectedOffer.purchasePrice, selectedOffer.currency)}</span>
+              <QuoteOfferBadgeList badges={selectedScore?.badges ?? []} compact />
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500">
+              <span>采购币种 {selectedOffer.currency}</span>
+              <span>MOQ {selectedOffer.moq ?? "-"}</span>
+              <span>CTN {selectedOffer.ctnQty ?? "-"}</span>
+            </div>
+          </div>
+          {offers.length > 1 ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-line bg-white px-2 text-xs font-semibold text-stone-700 hover:border-leaf"
+            >
+              {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              切换报价
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {expanded && offers.length > 1 ? (
+        <div className="mt-2 space-y-1">
+          {rankedOffers.map((score) => {
+            const offer = offerById.get(score.offerId);
+            if (!offer) {
+              return null;
+            }
+            const isSelected = offer.id === selectedOfferId;
+            return (
+              <button
+                key={offer.id}
+                type="button"
+                onClick={() => onSelect(offer.id)}
+                className={`w-full rounded-md border p-2 text-left text-sm ${
+                  isSelected ? "border-leaf bg-leaf/5" : "border-line bg-white hover:border-leaf"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-medium text-ink">{offer.factoryName}</span>
+                  <span className="whitespace-nowrap font-semibold text-ink">{formatMoney(offer.purchasePrice, offer.currency)}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500">
+                  <span>MOQ {offer.moq ?? "-"}</span>
+                  <span>CTN {offer.ctnQty ?? "-"}</span>
+                  <span>{formatOfferUpdatedAt(offer.priceUpdatedAt)}</span>
+                </div>
+                <QuoteOfferBadgeList badges={score.badges} />
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RankedOfferSummary({
+  rankedOffers,
+  offerById,
+}: {
+  rankedOffers: OfferScore[];
+  offerById: Map<string, QuoteProductOption["supplierOffers"][number]>;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="font-medium text-ink">{rankedOffers.length} 条报价</div>
+      {rankedOffers.slice(0, 3).map((score) => {
+        const offer = offerById.get(score.offerId);
+        if (!offer) {
+          return null;
+        }
+        return (
+          <div key={offer.id} className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
+            {score.badges.includes("recommended") ? (
+              <span className="rounded border border-amber-200 bg-amber-100 px-1 text-amber-800">推荐</span>
+            ) : null}
+            <span className="font-medium text-ink">{offer.factoryName}</span>
+            <span>{formatMoney(offer.purchasePrice, offer.currency)}</span>
+            {offer.moq ? <span className="text-stone-500">MOQ {offer.moq}</span> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function QuoteOfferBadgeList({ badges, compact = false }: { badges: OfferBadge[]; compact?: boolean }) {
+  if (badges.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`flex flex-wrap gap-1 ${compact ? "" : "mt-1"}`}>
+      {sortOfferBadges(badges).map((badge) => {
+        const meta = OFFER_BADGE_META[badge];
+        return (
+          <span key={badge} className={`rounded border px-1.5 py-0.5 text-xs font-semibold ${meta.className}`}>
+            {meta.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function sortOfferBadges(badges: OfferBadge[]): OfferBadge[] {
+  const order: OfferBadge[] = ["recommended", "lowest-price", "most-complete", "newest"];
+  return [...badges].sort((left, right) => order.indexOf(left) - order.indexOf(right));
+}
+
+function formatOfferUpdatedAt(value: string | null | undefined): string {
+  if (!value) {
+    return "更新 -";
+  }
+
+  try {
+    const date = new Date(value);
+    const timestamp = date.getTime();
+    if (!Number.isFinite(timestamp)) {
+      return "更新 -";
+    }
+
+    const ageInDays = Math.max(0, Math.floor((Date.now() - timestamp) / (24 * 60 * 60 * 1000)));
+    if (ageInDays < 30) {
+      return ageInDays <= 0 ? "今天更新" : `${ageInDays}天前更新`;
+    }
+    if (ageInDays < 365) {
+      return `${Math.floor(ageInDays / 30)}个月前更新`;
+    }
+    return `${date.toISOString().slice(0, 10)} 更新`;
+  } catch {
+    return "更新 -";
+  }
 }
 
 function QuoteParamTags({ product }: { product: QuoteProductOption }) {
