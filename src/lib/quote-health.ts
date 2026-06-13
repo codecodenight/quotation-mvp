@@ -14,6 +14,7 @@ export type QuoteHealthProductInput = {
   modelNo: string | null;
   remark: string | null;
   size: string | null;
+  hasSizeParam?: boolean;
   supplierOffers: QuoteHealthOfferInput[];
 };
 
@@ -58,7 +59,7 @@ function buildProductIssues(product: QuoteHealthProductInput): string[] {
   if (!detailText || (modelNo && detailText.toLowerCase() === modelNo.toLowerCase())) {
     issues.push("Product Details 过短或重复");
   }
-  if (!product.size?.trim()) {
+  if (!product.size?.trim() && !product.hasSizeParam) {
     issues.push("缺 Size");
   }
 

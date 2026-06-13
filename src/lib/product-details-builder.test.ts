@@ -51,4 +51,13 @@ describe("buildProductDetailsFromParams", () => {
 
     expect(result).toBe("Power: 50W\nBeam Angle: 120°\nLuminous Efficacy: 80-90 lm/W");
   });
+
+  test("includes lumens in structured details", () => {
+    const result = buildProductDetailsFromParams([
+      { paramKey: "watts", normalizedValue: "20", unit: "W", rawValue: "20W" },
+      { paramKey: "lumens", normalizedValue: "1600", unit: "lm", rawValue: "1600LM" },
+    ]);
+
+    expect(result).toBe("Power: 20W\nLumens: 1600lm");
+  });
 });

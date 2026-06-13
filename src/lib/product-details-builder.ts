@@ -12,6 +12,7 @@ const PARAM_FORMATTERS: ParamFormatter[] = [
   { key: "watts", label: "Power", format: formatWithUnit },
   { key: "cct", label: "CCT", format: formatWithUnit },
   { key: "ip", label: "IP", format: formatPlain },
+  { key: "lumens", label: "Lumens", format: formatWithUnit },
   { key: "size_display", label: "Size", format: formatPlain },
   { key: "material", label: "Material", format: formatPlain },
   { key: "beam_angle", label: "Beam Angle", format: formatBeamAngle },

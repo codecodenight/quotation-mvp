@@ -58,4 +58,28 @@ describe("buildQuoteHealth", () => {
     expect(health.offerIssues).toEqual([]);
     expect(health.totalIssueCount).toBe(0);
   });
+
+  test("does not warn size when a structured size parameter exists", () => {
+    const health = buildQuoteHealth({
+      productName: "LS-R02A-30W",
+      modelNo: "LS-R02A-30W",
+      remark: "Rechargeable work light 30W",
+      size: null,
+      hasSizeParam: true,
+      supplierOffers: [
+        {
+          id: "offer-1",
+          factoryName: "绿晟",
+          purchasePrice: "75",
+          moq: null,
+          ctnQty: "10",
+          ctnLength: "52",
+          ctnWidth: "40",
+          ctnHeight: "30",
+        },
+      ],
+    });
+
+    expect(health.productIssues).not.toContain("缺 Size");
+  });
 });

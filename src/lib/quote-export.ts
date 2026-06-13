@@ -268,7 +268,7 @@ export function buildProductDetails(item: QuoteWorkbookItem): string {
     }
   }
 
-  const remark = stripModelPrefix(item.productRemark?.trim() ?? "", item.modelNo);
+  const remark = cleanRemarkForCustomer(stripModelPrefix(item.productRemark?.trim() ?? "", item.modelNo));
   const productName = stripModelPrefix(item.productName?.trim() ?? "", item.modelNo);
   const size = item.size?.trim() ?? "";
   const details = remark || productName;
@@ -303,6 +303,21 @@ function stripModelPrefix(text: string, modelNo: string | null): string {
 
   const pattern = new RegExp(`^${escapeRegExp(model)}(?:\\s*[/|,;:]\\s*|\\s+)`, "i");
   return text.replace(pattern, "").trim();
+}
+
+function cleanRemarkForCustomer(text: string): string {
+  if (!text) {
+    return "";
+  }
+
+  return text
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/外箱尺寸|内盒尺寸|彩盒尺寸|包装尺寸|carton\s*size/i.test(line))
+    .filter((line) => !/^\s*\S+\s*[:：]\s*[/／]\s*$/.test(line))
+    .join("\n")
+    .trim();
 }
 
 function escapeRegExp(value: string): string {

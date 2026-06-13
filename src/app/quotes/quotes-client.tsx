@@ -56,6 +56,7 @@ const selectClass =
   "h-10 w-full rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-leaf";
 const SELECTED_ITEMS_STORAGE_KEY = "quotation-mvp:quote-selected-items:v1";
 const QUOTE_PARAMS_STORAGE_KEY = "quotation-mvp:quote-params:v1";
+const SIZE_PARAM_KEYS = new Set(["size_display", "length_mm", "width_mm", "height_mm"]);
 
 export function QuotesClient({
   filters,
@@ -618,7 +619,7 @@ function SelectedProductsTable({
             {items.map((item) => {
               const product = item.product;
               const selectedOffer = resolveSelectedOffer(item);
-              const health = buildQuoteHealth(product);
+              const health = buildQuoteHealth(withSizeParamSignal(product));
 
               return (
                 <tr key={product.id} className="align-top">
@@ -743,7 +744,7 @@ function ProductSelectionTable({
           </thead>
           <tbody className="divide-y divide-line bg-white">
             {products.map((product) => {
-              const health = buildQuoteHealth(product);
+              const health = buildQuoteHealth(withSizeParamSignal(product));
               const isSelected = selectedProductIds.has(product.id);
 
               return (
@@ -1451,6 +1452,15 @@ function isStoredSelectedItemEntry(value: unknown): value is [string, SelectedQu
     typeof product?.productName === "string" &&
     Array.isArray(product?.supplierOffers)
   );
+}
+
+function withSizeParamSignal(product: QuoteSelectionProduct): QuoteSelectionProduct & { hasSizeParam: boolean } {
+  return {
+    ...product,
+    hasSizeParam:
+      product.displayParams?.some((param) => SIZE_PARAM_KEYS.has(param.paramKey) && Boolean(param.normalizedValue?.trim())) ??
+      false,
+  };
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -36,6 +36,16 @@ describe("V3.0B parameter extraction", () => {
     expect(extractLmW("LUMEN: 1400LM", "remark")).toEqual([]);
   });
 
+  test("does not extract tolerance values as standalone CCT", () => {
+    expect(extractCct("CCT: 6500±500K", "remark")).toMatchObject([
+      { paramKey: "cct", normalizedValue: "6500±500", unit: "K" },
+    ]);
+    expect(extractCct("6500±500K", "remark")).toEqual([
+      expect.objectContaining({ paramKey: "cct", normalizedValue: "6500±500" }),
+    ]);
+    expect(extractCct("CCT: 500K", "remark")).toEqual([]);
+  });
+
   test("extracts floodlight structured remark fields", () => {
     const params = extractProductParamsForTest(
       product({

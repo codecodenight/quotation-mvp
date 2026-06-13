@@ -113,6 +113,23 @@ describe("buildProductDetails", () => {
       }),
     ).toBe("Power: 18W\nIP: IP65\nSize: Raw size");
   });
+
+  test("fallback filters packaging labels and empty values from remark", () => {
+    const details = buildProductDetails({
+      ...quote.items[0],
+      productName: "LS-W12F-20W",
+      modelNo: "LS-W12F-20W",
+      productRemark:
+        "PF: 0.9\nVoltage: /\nPower: 20W±10%\nLumen: 1600LM±10%\n产品单灯尺寸(MM): 128*93*28\n外箱尺寸(MM) 参考用: 620*280*280",
+      size: "128*93*28",
+      productParams: [],
+    });
+
+    expect(details).not.toContain("外箱尺寸");
+    expect(details).not.toContain("Voltage: /");
+    expect(details).toContain("PF: 0.9");
+    expect(details).toContain("Size: 128*93*28");
+  });
 });
 
 describe("writeQuoteWorkbook", () => {

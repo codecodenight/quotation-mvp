@@ -1388,17 +1388,20 @@ function extractLabeledWatts(value: string, sourceField: SourceField): Extracted
 
 export function extractCct(value: string, sourceField: SourceField): ExtractedParam[] {
   const params: ExtractedParam[] = [];
+  for (const match of value.matchAll(/(?<![\d\-~/±])(\d{3,5})\s*±\s*(\d{2,5})\s*K\b/gi)) {
+    params.push(param("cct", match[0], `${match[1]}±${match[2]}`, "K", sourceField, "medium"));
+  }
   for (const match of value.matchAll(/(\d{3,5})\s*[-/~]\s*(\d{3,5})\s*K\b/gi)) {
     params.push(param("cct", match[0], `${match[1]}-${match[2]}`, "K", sourceField, "medium"));
   }
-  for (const match of value.matchAll(/(?<![\d-~/])(\d{3,5})\s*K\b/gi)) {
+  for (const match of value.matchAll(/(?<![\d\-~/±])(\d{3,5})\s*K\b/gi)) {
     const normalized = match[1];
     if (params.some((item) => item.normalizedValue?.includes(normalized))) {
       continue;
     }
     params.push(param("cct", match[0], normalized, "K", sourceField, "medium"));
   }
-  return params;
+  return filterValidCctParams(params);
 }
 
 function extractLabeledCct(value: string, sourceField: SourceField): ExtractedParam[] {
@@ -1418,7 +1421,14 @@ function extractLabeledCct(value: string, sourceField: SourceField): ExtractedPa
       params.push(param("cct", valueItem, valueItem, "K", sourceField, "medium"));
     }
   }
-  return params;
+  return filterValidCctParams(params);
+}
+
+function filterValidCctParams(params: ExtractedParam[]): ExtractedParam[] {
+  return params.filter((item) => {
+    const parsed = Number.parseInt(item.normalizedValue?.replace(/[^\d]/g, "") ?? "", 10);
+    return Number.isNaN(parsed) || parsed >= 1800;
+  });
 }
 
 export function extractPf(value: string, sourceField: SourceField): ExtractedParam[] {

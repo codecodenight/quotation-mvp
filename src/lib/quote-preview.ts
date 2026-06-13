@@ -8,6 +8,8 @@ import {
 } from "./quote-export";
 import { checkQuoteItemHealth } from "./quote-health";
 
+const SIZE_PARAM_KEYS = new Set(["size_display", "length_mm", "width_mm", "height_mm"]);
+
 export type QuotePreviewItem = Omit<QuoteWorkbookItem, "salePrice"> & {
   productId: string;
   supplierOfferId: string;
@@ -65,6 +67,7 @@ export function buildQuotePreview(input: QuotePreviewInput): QuotePreviewData {
         modelNo: item.modelNo,
         remark: item.productRemark,
         size: item.size,
+        hasSizeParam: hasStructuredSizeParam(item.productParams ?? []),
         supplierOffers: [],
       },
       {
@@ -108,6 +111,10 @@ export function buildQuotePreview(input: QuotePreviewInput): QuotePreviewData {
     rows,
     totalWarnings: rows.reduce((sum, row) => sum + row.warnings.length, 0),
   };
+}
+
+function hasStructuredSizeParam(params: QuotePreviewItem["productParams"]): boolean {
+  return params?.some((param) => SIZE_PARAM_KEYS.has(param.paramKey) && Boolean(param.normalizedValue?.trim())) ?? false;
 }
 
 function buildPurchaseCurrencyLabel(items: QuotePreviewItem[]): string {
