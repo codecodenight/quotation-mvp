@@ -141,7 +141,6 @@ async function extractPdfRows(profile: PdfImportProfile): Promise<{
   const pdfBytes = new Uint8Array(readFileSync(absolutePath));
   const task = getDocument({
     data: pdfBytes,
-    disableWorker: true,
     useSystemFonts: true,
     stopAtErrors: false,
   });

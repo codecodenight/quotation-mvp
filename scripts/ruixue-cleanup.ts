@@ -13,7 +13,6 @@ const TARGET_FACTORY_PATTERN = "瑞雪%";
 
 type Mode = "dry-run" | "apply";
 
-type CountRow = { count: number | null };
 type CleanupCounts = {
   target_products: number | null;
   target_deletable_products: number | null;

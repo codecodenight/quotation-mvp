@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-13
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V4.5)
+## Current State (after V3.0H)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -40,16 +40,18 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 多报价对比 + 推荐报价 (V4.5): `src/lib/offer-ranking.ts` 纯函数推荐排序（完整度 0-40 + 价格排名 0-30 + 时效 0-20）; 产品库 offer 表格增加推荐列 + badge（最低价/资料全/最新/推荐）+ 按推荐分排序; 报价中心搜索结果显示前 3 个推荐报价; 已选产品 offer 选择器从 `<select>` 改为可展开对比卡片; 新产品默认选推荐 offer; 单 offer 产品不显示 badge; `priceUpdatedAt` 脏数据容错; `OFFER_BADGE_META` 在产品库 Server Component 和报价中心 Client Component 间共享
 - PDF 文件盘点 + 入库索引 (V2.20): `scripts/pdf-inventory-v2.20.ts` 扫描 617 份 PDF，新增 584 条 + 更新 33 条 files 记录; 基于文件名/路径关键词分类为 7 类（quotation/catalog/spec/certificate-report/packaging-image/manual/other）; 73 份疑似报价 PDF 作为 V2.21 spike 候选; 分布：室内 279 / 户外 266 / 光源 39 / 灯带 33; 注意：73 候选有噪声（父目录含"价格"导致子文件误判），实际真正报价可能 30-40 份
 - PDF 可解析性 Spike (V2.21): `scripts/pdf-spike-v2.21.ts` 用 `pdfjs-dist@6.0.227` 对 16 份精选 PDF 做只读解析; 4 importable（普雅G4G9/普照防潮灯/普照三防灯A/杰莱特风扇灯，全部 RMB 工厂报价）、10 manual-review（3 份接近 importable 但 table 检测阈值太严、5 份 USD 客户报价、2 份有价格但结构模糊）、2 skip（扫描件零文字）; 关键结论：pdfjs-dist 文本+坐标提取可用，RMB 工厂报价 PDF 有清晰表格结构，USD PDF 全是 Welfull 发客户报价不应导入为采购价
+- PDF 报价导入 (V2.22): `scripts/pdf-import-v2.22.ts` + `scripts/pdf-import-profiles.ts` 采用 profile-based parser，导入 4 份 V2.21 确认的 RMB 工厂报价 PDF；+150 products +150 supplier_offers；保留 dry-run/apply 报告；源 PDF 只读
+- PDF 导入产品参数提取 (V3.0H): `scripts/extract-params.ts --target=v3h` 对 G4G9/防潮灯/三防灯/风扇灯重跑参数提取；1,036 target products → 951 products with params；product_params 37,045→37,432
 
-### Data (after V2.20)
-- Products: 9,887 across 32 categories (V2.19A-D: -1,457 junk products cleaned)
-- Supplier offers: 10,941
-- Files in DB: 1,725 (was 1,141; +584 PDF records from V2.20)
+### Data (after V3.0H)
+- Products: 10,037 across 30 categories (V2.19A-D: -1,457 junk products cleaned; V2.22: +150 PDF products)
+- Supplier offers: 11,091
+- Files in DB: 1,737 (includes Excel + PDF source records)
 - PDF files in DB: 677 (was 93)
 - Files (My Passport): 1,215 Excel + 617 PDF
-- Price history: 9,899 records
-- Product images: 7,563 products have images
-- Product params: 37,236 (32 categories all have params; V3.0G added 187 net new params)
+- Price history: 9,853 records
+- Product images: 7,453 products have images
+- Product params: 37,432 (30 categories all have params; V3.0H added PDF import product params)
 - Batch 1 categories growth: 投光灯 16→492, 面板灯 69→902, 线条灯 38→1,123, 路灯 15→213, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
 - Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
@@ -221,13 +223,15 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V4.5 | 多报价对比 + 推荐报价 | `offer-ranking.ts` 纯函数评分(完整度+价格+时效)；产品库 badge 列+推荐排序；报价中心搜索前3推荐+可展开对比卡片；默认选推荐 offer |
 | V2.20 | PDF 文件盘点 + 入库索引 | 617 份 PDF 扫描，584 新建+33 更新 files 记录；7 类分类（quotation 73/catalog 109/spec 105/certificate 130/packaging 44/manual 9/other 147）；73 候选有噪声，真正报价约 30-40 份 |
 | V2.21 | PDF 可解析性 Spike | pdfjs-dist 6.0.227 解析 16 份精选 PDF；4 importable（RMB 工厂报价）/ 10 manual-review / 2 skip（扫描件）；table 检测 y-coordinate 聚类有效但阈值偏严（3 份有价格但 table 未检出） |
+| V2.22 | PDF 报价导入 | profile-based parser 导入 4 份 V2.21 确认的 RMB 工厂报价 PDF；+150 products +150 supplier_offers；dry-run/apply 报告保留 |
+| V3.0H | PDF 导入产品参数提取 | G4G9/防潮灯/三防灯/风扇灯 1,036 产品重跑参数提取；951 产品有参数；product_params 37,045→37,432 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V2.22 — PDF 报价导入器** — 只处理 importable 文本 PDF（普雅G4G9/普照防潮灯/普照三防灯A/杰莱特风扇灯）；流程类似 Excel（选文件→预览→映射→导入）；不碰 USD 客户报价、不碰扫描件、不做 OCR
+1. **V2.23 — PDF manual-review 再评估** — V2.21 的 10 份 manual-review 里有 3 份接近 importable；放宽/改进 table 检测阈值，确认是否值得继续做 profile parser。不碰 USD 客户报价，不做 OCR。
 2. **V2.19F 小修补（按需）** — 尼奥 7 条价格修正；瑞鑫 ~9 条规格文本产品清理；欧诺价格货币确认
 3. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
@@ -266,6 +270,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V4.5 — 多报价对比 + 推荐报价~~ ✅ commit 3ccead1 — offer-ranking 纯函数评分；产品库 badge 列+推荐排序；报价中心搜索前3+对比卡片；默认选推荐 offer
 - ~~V2.20 — PDF 文件盘点 + 入库索引~~ ✅ commit ed22666 — 617 PDF 扫描，584 新建+33 更新；73 候选报价 PDF 识别；files 表 1,141→1,725
 - ~~V2.21 — PDF 可解析性 Spike~~ ✅ commit d47f902 — pdfjs-dist 解析 16 PDF；4 importable / 10 manual-review / 2 skip
+- ~~V2.22 — PDF 报价导入~~ ✅ commit 8ee56d1 — 4 份 RMB 工厂报价 PDF 导入；+150 products +150 offers
+- ~~V3.0H — PDF 导入产品参数提取~~ ✅ G4G9/防潮灯/三防灯/风扇灯 重跑参数；product_params 37,045→37,432
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3

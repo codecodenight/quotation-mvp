@@ -67,6 +67,11 @@ const TARGET_CATEGORY_CONFIGS = {
     categories: ["充电灯", "投光灯", "面板灯", "太阳能壁灯", "路灯", "工作灯", "Highbay"],
     defaultReport: "docs/v3.0g-dry-run-report.md",
   },
+  v3h: {
+    title: "V3.0H",
+    categories: ["G4G9", "防潮灯", "三防灯", "风扇灯"],
+    defaultReport: "docs/v3.0h-dry-run-report.md",
+  },
 } as const;
 
 const targetConfig = readTargetConfig();
@@ -153,7 +158,9 @@ function readTargetConfig() {
   const target = readArg("--target") ?? "v3c";
   const config = TARGET_CATEGORY_CONFIGS[target as keyof typeof TARGET_CATEGORY_CONFIGS];
   if (!config) {
-    throw new Error(`Unknown extraction target: ${target}. Use --target=v3b, --target=v3c, --target=v3d, --target=v3e, --target=v3f or --target=v3g.`);
+    throw new Error(
+      `Unknown extraction target: ${target}. Use --target=v3b, --target=v3c, --target=v3d, --target=v3e, --target=v3f, --target=v3g or --target=v3h.`,
+    );
   }
   return config;
 }

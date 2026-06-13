@@ -526,7 +526,6 @@ async function analyzePdf(file: SpikeFile): Promise<SpikeResult> {
     const pdfBytes = new Uint8Array(readFileSync(absolutePath));
     const task = getDocument({
       data: pdfBytes,
-      disableWorker: true,
       useSystemFonts: true,
       stopAtErrors: false,
     });

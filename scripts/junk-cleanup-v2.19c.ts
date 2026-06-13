@@ -114,10 +114,10 @@ async function applyCleanup() {
   await execSql(buildCleanupTransactionSql());
 
   const after = await loadSnapshot();
-  if (toNumber(after.counts.target_products) !== 0 || toNumber(after.counts.target_offers) !== 0) {
+  if (toNumber(after.counts.target_products) !== 0 || toNumber(after.counts.target_all_offers) !== 0) {
     throw new Error(
       `Cleanup verification failed: remaining targets products=${toNumber(after.counts.target_products)}, offers=${toNumber(
-        after.counts.target_offers,
+        after.counts.target_all_offers,
       )}`,
     );
   }
@@ -287,10 +287,6 @@ function targetProductsSql(): string {
     JOIN supplier_offers so ON so.product_id = p.id
     WHERE ${targetWhereSql("p", "so")}
   `;
-}
-
-function targetOffersSql(): string {
-  return targetAllOffersSql();
 }
 
 function targetGroupOffersSql(): string {
