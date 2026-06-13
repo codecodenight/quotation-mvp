@@ -194,6 +194,7 @@ Phase 1 and Phase 2 may be done together.
 | V2.19A-1 | 瑞雪净化灯垃圾删除（-1,362 产品/offers，净化灯覆盖 11%→83%） | ✓ |
 | V2.19B | 全品类污染扫描（3🔴 + 11🟡，误报 4 组已排除） | ✓ |
 | V2.19C | 明确垃圾删除（5 组 -54 产品 -81 offers -89 params） | ✓ |
+| V2.19D | 部分垃圾逐条审计（3 组 98 产品：40 junk / 3 suspect / 55 keep） | ✓ |
 
 ### Current Data (after V2.19C)
 

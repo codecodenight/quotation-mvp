@@ -35,6 +35,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 瑞雪净化灯垃圾删除 (V2.19A Step 1): `scripts/ruixue-cleanup.ts` with --dry-run/--apply modes; deleted 1,362 products + 1,362 offers + 4 params; preserved 6 T8 products; deletion scope adjusted from task spec's `NOT GLOB '*[a-zA-Z]*'`(only 852 hits) to `image_path IS NULL`(1,362 hits) because junk names like `1000pom/1000eco` contain letters; backup at `backups/dev-before-v2.19a-step1-20260613-202132.sqlite`
 - 全品类污染扫描 (V2.19B): `scripts/pollution-scan.ts` scored 198 category×factory groups; 3🔴 (吸顶灯-力音/面板灯-侧发光核价/线条灯-广交会) + 11🟡; 人工审阅确认 5 组明确垃圾(54产品)、3 组部分垃圾(98产品需精细过滤)、4 组误报(G4G9旭航/Highbay隆景/G4G9核价/风扇灯鸿烁)、1 组需调查(伟润578产品price=0)
 - 明确垃圾删除 (V2.19C): `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers (含 27 条挂在垃圾产品上的组外 offer) + 89 params + 2 price_history; 19 个垃圾产品有跨工厂额外 offer，说明污染扩散到了 offer 层
+- 部分垃圾逐条审计 (V2.19D): `scripts/partial-junk-audit.ts` 对 3 组 98 产品逐条标记 junk/suspect/keep; 审阅发现: 40 junk 确认删除, COB suspect 也删(共41); 2 个尼奥 LST-5050 suspect 保留(真产品但 price=芯片型号→V2.19E); 瑞鑫 keep 中 ~9 个是规格/材质文本不是产品名(也有价格问题→后续处理)
 
 ### Data (after V2.19C)
 - Products: 9,928 across 32 categories (V2.19A-C: -1,416 junk products cleaned)
@@ -208,6 +209,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V2.19A-1 | 瑞雪净化灯垃圾删除 | `scripts/ruixue-cleanup.ts` 删除 1,362 产品+offers+4 params；保留 6 个 T8 产品；净化灯覆盖率跃升（图片 83%/参数 95%/Size 93%/CTN 71%）；全局 11,344→9,982 产品 |
 | V2.19B | 全品类污染扫描 | `scripts/pollution-scan.ts` 扫描 198 组 category×factory；3🔴+11🟡；审阅后分流：5 组明确垃圾→V2.19C、3 组部分垃圾→V2.19D、伟润 price=0→V2.19E、4 组误报不动 |
 | V2.19C | 明确垃圾删除 | `scripts/junk-cleanup-v2.19c.ts` 删除 5 组 54 产品 + 81 offers（含 27 条组外 offer）+ 89 params；全局 9,982→9,928 产品 |
+| V2.19D | 部分垃圾逐条审计 | `scripts/partial-junk-audit.ts` 3 组 98 产品逐条标记；40 junk + 1 suspect(COB) = 41 确认删除；2 LST suspect 保留→V2.19E |
 
 ---
 
@@ -250,6 +252,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V2.19A Step 1 — 瑞雪净化灯垃圾删除~~ ✅ commit 9ffe2f1 — 1,362 产品+offers 删除，6 个 T8 产品保留，净化灯图片 11%→83%
 - ~~V2.19B — 全品类污染扫描~~ ✅ commit de1d24f — 198 组扫描，3🔴+11🟡，审阅分流到 V2.19C/D/E
 - ~~V2.19C — 明确垃圾删除~~ ✅ commit 5f9d9f7 — 5 组 54 产品 + 81 offers 删除，全局 9,982→9,928
+- ~~V2.19D — 部分垃圾逐条审计~~ ✅ commit b9bf2e9 — 3 组 98 产品标记：40 junk + 3 suspect + 55 keep
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
