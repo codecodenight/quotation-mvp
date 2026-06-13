@@ -177,17 +177,27 @@ Phase 1 and Phase 2 may be done together.
 | V3.0D | 剩余 12 品类参数提取（灯丝灯/轨道灯/橱柜灯/太阳能壁灯等） | ✓ |
 | V2.14 Batch 3 | 批量导入第三批（风扇灯/工作灯/G4G9 + 剩余补导品类） | ✓ |
 | V3.0E | Batch 3 参数提取（风扇灯/工作灯/G4G9 + 剩余补导品类） | ✓ |
+| V4.0A | 产品库参数筛选 + 参数标签（品类下拉/功率范围/IP 筛选） | ✓ |
+| V4.0B | 报价中心参数筛选 + 产品库参数详情 + 共享 product-filters.ts | ✓ |
+| V4.0C | 报价 Product Details 参数化生成（product-details-builder.ts） | ✓ |
+| V2.17 | 灯管/球泡分类（27 文件只读 sheet 级分类） | ✓ |
+| V2.17E-F | 价格列检测修复（黑名单 + 语义优先 + 同列排除） | ✓ |
+| V2.17G | 灯管/球泡拆分导入 apply（+266 products +330 offers） | ✓ |
+| V3.0F | 球泡/灯管参数提取（球泡 100% / 灯管 98.8%） | ✓ |
+| V2.18 | 户外工厂-未判定导入（18 文件，新品类充电灯） | ✓ |
+| V2.18B | 伊特 4.25 投光灯导入（+44 products +202 price_history） | ✓ |
+| V3.0G | V2.18 户外产品参数提取（充电灯 extractor + 7 品类重跑） | ✓ |
 
-### Current Data
+### Current Data (after V3.0G / V2.18B)
 
-- Products: 10,970 across 29 categories
-- Supplier offers: 11,990
-- Product params: 35,443 (覆盖 7,874 产品 / 29 参数品类，high 11,569 + medium 23,874)
-- Product images: 7,377 (67% coverage)
-- Imported from 563 source files with active supplier offers (1,097 My Passport file records)
-- CTN coverage: ctn_qty 2,813 / L×W×H 1,787 out of 11,990 offers
-- Price timestamp coverage: 95% (11,443 offers with price_updated_at)
-- Price history: 8,198 records
+- Products: 11,344 across 32 categories
+- Supplier offers: 12,428
+- Product params: 37,236 (32 品类全部有参数)
+- Product images: 7,563 (67% coverage)
+- Imported from 563+ source files with active supplier offers (1,097 My Passport file records)
+- CTN coverage: ctn_qty 2,813 / L×W×H 1,787 out of 12,428 offers
+- Price timestamp coverage: ~95%
+- Price history: 9,899 records
 
 ### V2.0 Definition — Daily Internal Use Ready
 
@@ -544,8 +554,9 @@ These may be built as future enhancements on top of the MVP data layer.
 
 None. Pending next task assignment.
 
-## Known Data Quality Issues (post V2.16)
+## Known Data Quality Issues (post V3.0G)
 
 1. 1 组 `model_no + factory_name` 仍有 2 条 offer（WL-S02-6W / 绿晟，有 quote_items 引用无法删除）
-2. 3,593 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行）
-3. V3.0E 已让 29 个品类全部进入 product_params 体系；剩余缺参数产品主要受 DB 字段文本缺失限制
+2. ~3,781 个产品无图（主要原因：源文件无嵌入图片、generated model 无法匹配、anchor 偏移 >3 行、.xls 文件跳过图片提取）
+3. V3.0G 已让 32 个品类全部进入 product_params 体系；剩余缺参数产品主要受 DB 字段文本缺失限制
+4. V2.18 needs-review 4 文件（绿晟 R01/R03/R06 + W12F-20W50W）无型号列/RMB 价格列，暂时无法导入
