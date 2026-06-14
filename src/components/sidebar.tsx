@@ -8,6 +8,7 @@ import {
   ListChecks,
   PackageSearch,
   ReceiptText,
+  SearchCheck,
 } from "lucide-react";
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/import", label: "Excel 导入", icon: FileSpreadsheet },
   { href: "/triage", label: "产品整理", icon: ListChecks },
   { href: "/quotes", label: "报价中心", icon: ReceiptText },
+  { href: "/customer-quotes", label: "历史报价", icon: SearchCheck },
   { href: "/data-quality", label: "数据质量", icon: BarChart3 },
 ];
 
