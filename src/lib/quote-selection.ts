@@ -16,6 +16,16 @@ export type QuoteSelectionOffer = {
   priceUpdatedAt?: string | null;
 };
 
+export type HistoricalCustomerQuote = {
+  salePriceUsd: number;
+  salePriceText: string | null;
+  rawModel: string | null;
+  customerName: string | null;
+  quoteDate: string | null;
+  fileName: string;
+  totalCount: number;
+};
+
 export type QuoteSelectionProduct = {
   id: string;
   productName: string;
@@ -25,6 +35,7 @@ export type QuoteSelectionProduct = {
   remark: string | null;
   supplierOffers: QuoteSelectionOffer[];
   displayParams?: ProductParamDisplay[];
+  historicalQuotes?: HistoricalCustomerQuote[];
 };
 
 export type SelectedQuoteItem = {

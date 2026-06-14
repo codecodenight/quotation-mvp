@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { getHistoricalQuotesByProductIds, type HistoricalCustomerQuote } from "@/lib/customer-quote-reference";
 import { getCategoryOptions, getCctOptions, getIpOptions, getProductIdsByWattsRange, parseOptionalNonNegativeDecimal } from "@/lib/product-filters";
 import { prisma } from "@/lib/prisma";
 import { buildQuoteSearchWhere, serializeQuoteSearchResult } from "@/lib/quote-history";
@@ -133,12 +134,13 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
         take: 50,
       })
     : [];
+  const historicalQuotesByProductId = await getHistoricalQuotesByProductIds(products.map((product) => product.id));
 
   return (
     <QuotesClient
       filters={filters}
       shouldLoadProducts={shouldLoadProducts}
-      products={products.map(serializeProduct)}
+      products={products.map((product) => serializeProduct(product, historicalQuotesByProductId.get(product.id) ?? []))}
       quotes={quotes.map(serializeQuote)}
       categories={categories}
       ipOptions={ipOptions}
@@ -147,7 +149,7 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
   );
 }
 
-function serializeProduct(product: QuoteProductResult): QuoteProductOption {
+function serializeProduct(product: QuoteProductResult, historicalQuotes: HistoricalCustomerQuote[]): QuoteProductOption {
   return {
     id: product.id,
     productName: product.productName,
@@ -176,6 +178,7 @@ function serializeProduct(product: QuoteProductResult): QuoteProductOption {
       unit: param.unit,
       confidence: param.confidence,
     })),
+    historicalQuotes,
   };
 }
 

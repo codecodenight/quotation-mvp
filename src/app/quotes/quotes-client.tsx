@@ -684,6 +684,7 @@ function SelectedProductsTable({
                         }))
                       }
                     />
+                    <HistoricalPriceReference quotes={product.historicalQuotes ?? []} />
                   </td>
                   <td className="w-28 px-3 py-3">
                     <input
@@ -939,6 +940,64 @@ function SelectedOfferPicker({
   );
 }
 
+function HistoricalPriceReference({ quotes }: { quotes: NonNullable<QuoteProductOption["historicalQuotes"]> }) {
+  if (quotes.length === 0) {
+    return null;
+  }
+
+  const latest = quotes[0];
+  const totalCount = latest?.totalCount ?? quotes.length;
+  const hiddenCount = Math.max(0, totalCount - quotes.length);
+
+  return (
+    <details className="mt-2 rounded-md border border-amber-200 bg-amber-50/70 text-xs text-stone-700">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-2 py-2 [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
+          <FileSpreadsheet className="h-3.5 w-3.5 text-amber-700" aria-hidden="true" />
+          历史售价参考 ({totalCount}条)
+        </span>
+        <span className="text-stone-600">
+          最近: {formatHistoricalUsd(latest.salePriceUsd)} ({formatHistoricalQuoteDate(latest.quoteDate)},{" "}
+          {formatHistoricalCustomer(latest.customerName)})
+        </span>
+      </summary>
+      <div className="border-t border-amber-200 bg-white/80">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left">
+            <thead className="bg-amber-100/70 text-[11px] uppercase tracking-[0.06em] text-stone-600">
+              <tr>
+                <th className="px-2 py-1.5">日期</th>
+                <th className="px-2 py-1.5">客户</th>
+                <th className="px-2 py-1.5 text-right">FOB USD</th>
+                <th className="px-2 py-1.5">来源文件</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-amber-100">
+              {quotes.map((quote, index) => (
+                <tr key={`${quote.fileName}:${quote.quoteDate ?? "unknown"}:${quote.salePriceUsd}:${index}`}>
+                  <td className="whitespace-nowrap px-2 py-1.5">{formatHistoricalQuoteDate(quote.quoteDate)}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5">{formatHistoricalCustomer(quote.customerName)}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-ink">
+                    {formatHistoricalUsd(quote.salePriceUsd)}
+                  </td>
+                  <td className="max-w-64 truncate px-2 py-1.5" title={quote.fileName}>
+                    {quote.fileName}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {hiddenCount > 0 ? (
+          <div className="border-t border-amber-100 px-2 py-1.5 text-stone-500">
+            还有 {hiddenCount} 条更早记录
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 function RankedOfferSummary({
   rankedOffers,
   offerById,
@@ -1016,6 +1075,18 @@ function formatOfferUpdatedAt(value: string | null | undefined): string {
   } catch {
     return "更新 -";
   }
+}
+
+function formatHistoricalUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+function formatHistoricalQuoteDate(value: string | null): string {
+  return value?.trim() || "日期未知";
+}
+
+function formatHistoricalCustomer(value: string | null): string {
+  return value?.trim() || "（内部核价）";
 }
 
 function QuoteParamTags({ product }: { product: QuoteProductOption }) {

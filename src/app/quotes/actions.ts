@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
 
+import { getHistoricalQuotesByProductIds, type HistoricalCustomerQuote } from "@/lib/customer-quote-reference";
 import { calculateSalePrice, writeQuoteWorkbook, type QuoteWorkbookData } from "@/lib/quote-export";
 import { prisma } from "@/lib/prisma";
 import { buildQuotePreview, type QuotePreviewData } from "@/lib/quote-preview";
@@ -254,6 +255,7 @@ export async function reuseQuote(quoteId: string): Promise<SerializedReusableQuo
       },
     },
   });
+  const historicalQuotesByProductId = await getHistoricalQuotesByProductIds(currentProducts.map((product) => product.id));
 
   return serializeReusableQuoteDraft(
     buildReusableQuoteDraft({
@@ -263,7 +265,9 @@ export async function reuseQuote(quoteId: string): Promise<SerializedReusableQuo
         currency: quote.currency,
         exchangeRate: quote.exchangeRate,
       },
-      currentProducts: currentProducts.map(serializeQuoteSelectionProduct),
+      currentProducts: currentProducts.map((product) =>
+        serializeQuoteSelectionProduct(product, historicalQuotesByProductId.get(product.id) ?? []),
+      ),
       items: quote.items.map((item) => ({
         productId: item.productId,
         productName: item.product.productName,
@@ -464,6 +468,7 @@ function serializeQuoteSelectionProduct(
       priceUpdatedAt: Date | null;
     }>;
   },
+  historicalQuotes: HistoricalCustomerQuote[] = [],
 ): QuoteSelectionProduct {
   return {
     id: product.id,
@@ -486,6 +491,7 @@ function serializeQuoteSelectionProduct(
       remark: offer.remark,
       priceUpdatedAt: serializePriceUpdatedAt(offer.priceUpdatedAt),
     })),
+    historicalQuotes,
   };
 }
 
