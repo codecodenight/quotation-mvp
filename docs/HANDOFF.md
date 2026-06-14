@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-14
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G/V5.0A-D
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.19G)
+## Current State (after V5.0D)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -48,8 +48,12 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - V2.24 PDF 产品参数提取 (V3.0I): `extract-params.ts --target=v3h` 对 6 个新三防灯产品补提参数；+42 params（9/6/6/9/6/6 per product）；watts/size_display/length_mm/width_mm/height_mm/series + 部分 voltage/cri/cct/material
 - 尼奥/瑞鑫/欧诺数据修补 (V2.19F): `scripts/data-fix-v2.19f.ts` 三 Part 修补：Part A 尼奥灯带 4/7 条价格修正（从源 Excel 含税价列提取，3 条源行无独立价格跳过）+ 4 条 price_history；Part B 瑞鑫面板灯 5 条规格行删除（0.7PS/0.8PS/295*1195/595*1195/595*595）；Part C 欧诺面板灯 20 条 currency RMB→USD（源表头明确 FOB PRICE USD）+ 2 条 3W/5W 欧诺错误 offer 删除（共享产品保留）
 - 数据质量遗留收口审计 (V2.19G): `scripts/data-quality-audit-v2.19g.ts` 只读审计 V2.19F 全部遗留异常；Part A 尼奥 3 条无源价格→待人工补价（LST-2835-180 有其他工厂参考价 14 RMB）；Part B 瑞鑫 4 条→保留（PP0.7/0.8/1.0 有 params，36/40W 有图）；Part C 欧诺 2 条→保留（圆形/方形有合理 RMB 价格）；Part D 48W 碰撞→4 keep on panel, 7 move to other categories；另发现 47 组通用 model_no 碰撞（24W灯管=26 factories, 18W灯管=24 等）
+- 历史客户报价 Spike (V5.0A): `scripts/customer-quote-spike-v5.0a.ts` 只读分析 `发客户报价单汇总/` 176 个 Excel；抽样 20 文件 14 品类；FOB USD 可识别 90%、款号 80%、日期 95%、客户名 30%（仅 To XXX 文件）；0 unknown-format；结论值得建独立表导入
+- 历史客户报价建表+导入 (V5.0B): `customer_quote_files` + `customer_quote_rows` 独立表（raw SQL migration）；导入 161 个文件 398 个 sheet 6,139 行；FOB USD 97%（5,959 行）；不写 supplier_offers/products
+- 历史客户报价产品匹配 (V5.0C): `scripts/customer-quote-match-v5.0c.ts` 填充 `matched_product_id`；精确匹配 2,837 + 归一化匹配 10 = 2,847 行（46%）；未匹配原因：2,050 行无 raw_model + 1,242 行 model_no 不在产品库
+- 报价中心历史售价参考 UI (V5.0D): 已选产品 offer 选择器下方新增折叠式"历史售价参考"区域；有记录才显示；最多 10 条，按日期降序；客户名为 NULL 显示"内部核价"；batch 查询所有已选产品
 
-### Data (after V2.19G — unchanged from V2.19F, audit was read-only)
+### Data (after V5.0D)
 - Products: 10,032 across 30 categories (V2.19A-D: -1,457 junk; V2.22: +150 PDF; V2.24: +6 PDF; V2.25: -6 dup; V2.19F: -5 spec rows)
 - Supplier offers: 11,084 (V2.19F: -7 offers, +20 currency fix)
 - Files in DB: 1,737 (includes Excel + PDF source records)
@@ -63,6 +67,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
 - Tube/bulb split growth: 球泡 151→341 (+190), 灯管 8→84 (+76)
 - Outdoor factory import (V2.18/B): 充电灯 0→7, 投光灯 +48, 面板灯 +16, 路灯 +16, 工作灯 +12, 太阳能壁灯 +6, Highbay +3
+- **Historical customer quotes (V5.0B-C)**: customer_quote_files 398 records, customer_quote_rows 6,139 rows (5,959 with FOB USD), 2,847 matched to products (46%)
 
 ### Data Sources on Disk (reorganized 2026-06-11)
 User reorganized the external hard drive from a flat structure (~60 top-level dirs) to a hierarchical structure:
@@ -237,15 +242,19 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V3.0I | V2.24 PDF 产品参数提取 | 6 个三防灯产品补提参数；+42 params；watts/size_display/dimensions/series/voltage/cri/cct/material |
 | V2.19F | 尼奥/瑞鑫/欧诺数据修补 | Part A: 尼奥 4/7 价格修正（源 Excel 含税价）；Part B: 瑞鑫 5 规格行删除；Part C: 欧诺 20 条 RMB→USD + 2 条错误 offer 删除 |
 | V2.19G | 数据质量遗留收口审计 | 只读审计；尼奥 3 待人工补价 / 瑞鑫 4 保留 / 欧诺 2 保留 / 48W 碰撞拆分方案 + 47 组通用 model_no 碰撞发现 |
+| V5.0A | 历史客户报价 Spike | 20 文件 14 品类抽样；FOB USD 90% / 款号 80% / 日期 95%；值得建独立表 |
+| V5.0B | 历史客户报价建表+导入 | customer_quote_files + customer_quote_rows；161 文件 6,139 行；FOB USD 97% |
+| V5.0C | 历史客户报价产品匹配 | 精确+归一化匹配 2,847 行（46%）；未匹配主因：无 raw_model 或 model_no 不在库 |
+| V5.0D | 报价中心历史售价参考 UI | 已选产品折叠式历史 FOB USD 参考；有记录才显示；batch 查询 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V5.0A — 历史客户报价 Spike** — 分析 `发客户报价单汇总/` 下 ~176 个 Excel 文件的格式稳定性和可提取字段，判断是否值得建独立表导入历史客户 FOB USD 售价。任务文件已写：`docs/codex-task-v5.0a.md`
-2. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser
-3. **48W model_no 碰撞拆分** — V2.19G 审计输出了拆分方案（4 keep on panel, 7 move），47 组通用 model_no 碰撞是系统性问题，需要专项处理
+1. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser
+2. **48W model_no 碰撞拆分** — V2.19G 审计输出了拆分方案（4 keep on panel, 7 move），47 组通用 model_no 碰撞是系统性问题，需要专项处理
+3. **V5.0 后续** — 提升匹配率（当前 46%，2,050 行无 raw_model 是主瓶颈）；客户维度管理；历史售价趋势
 4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
@@ -291,6 +300,10 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V3.0I — V2.24 PDF 产品参数提取~~ ✅ commit 1ccb735 — 6 产品 +42 params；watts/size/dimensions/series
 - ~~V2.19F — 尼奥/瑞鑫/欧诺数据修补~~ ✅ commit c28513b — 尼奥 4 价格修正；瑞鑫 5 规格行删除；欧诺 20 条 RMB→USD + 2 错误 offer 删除
 - ~~V2.19G — 数据质量遗留收口审计~~ ✅ commit 476e1d6 — 只读审计全部 V2.19F 遗留：尼奥 3 待人工补价 / 瑞鑫 4 保留 / 欧诺 2 保留 / 48W 拆分方案 / 47 组通用 model_no 碰撞
+- ~~V5.0A — 历史客户报价 Spike~~ ✅ commit c6aafa6 — 20 文件 14 品类抽样；FOB USD 90%/款号 80%/日期 95%；格式稳定，值得建表
+- ~~V5.0B — 历史客户报价建表+导入~~ ✅ commit cff8ba4 — customer_quote_files 398 + customer_quote_rows 6,139；FOB USD 5,959 行 97%
+- ~~V5.0C — 历史客户报价产品匹配~~ ✅ commit b8bf804 — 2,847 行 matched_product_id（46%）；精确 2,837 + 归一化 10
+- ~~V5.0D — 报价中心历史售价参考 UI~~ ✅ commit 4e8d434 — 已选产品折叠式历史 FOB USD 参考区域
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
