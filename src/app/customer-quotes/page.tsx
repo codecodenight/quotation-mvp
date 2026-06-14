@@ -102,7 +102,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
     <div className="mx-auto max-w-7xl">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-leaf">V5.2</div>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-leaf">历史报价</div>
           <h1 className="mt-2 text-3xl font-semibold text-ink">历史客户报价</h1>
           <p className="mt-2 text-sm text-stone-600">
             搜索已导入的客户 FOB USD 报价记录；未匹配到产品库的历史价格也会显示。
