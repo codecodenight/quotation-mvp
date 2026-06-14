@@ -191,24 +191,25 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
       </section>
 
       <section className="overflow-hidden rounded-md border border-line bg-paper shadow-panel">
-        <div className="grid grid-cols-[96px_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(220px,1.7fr)_110px_110px_minmax(180px,1.2fr)_minmax(240px,1.4fr)] gap-3 bg-[#3F4A35] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-white">
+        <div className="grid grid-cols-[88px_minmax(96px,0.7fr)_minmax(140px,0.9fr)_minmax(132px,0.9fr)_minmax(180px,1.5fr)_96px_96px_minmax(140px,1fr)] gap-3 bg-[#3F4A35] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-white">
           <SortableHeader label="日期" field="date" filters={filters} />
           <div>客户</div>
           <SortableHeader label="型号" field="model" filters={filters} />
+          <div>匹配</div>
           <div>描述</div>
           <SortableHeader label="FOB USD" field="price" filters={filters} align="right" />
           <div className="text-right">RMB 成本</div>
           <div>来源</div>
-          <div>匹配</div>
         </div>
 
         <div className="divide-y divide-line bg-white">
           {rows.map((row) => (
             <details key={row.id} className="group">
-              <summary className="grid cursor-pointer list-none grid-cols-[96px_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(220px,1.7fr)_110px_110px_minmax(180px,1.2fr)_minmax(240px,1.4fr)] gap-3 px-4 py-3 text-sm hover:bg-cream/50">
+              <summary className="grid cursor-pointer list-none grid-cols-[88px_minmax(96px,0.7fr)_minmax(140px,0.9fr)_minmax(132px,0.9fr)_minmax(180px,1.5fr)_96px_96px_minmax(140px,1fr)] gap-3 px-4 py-3 text-sm hover:bg-cream/50">
                 <div className="font-medium text-ink">{formatQuoteDate(row.quote_date)}</div>
                 <div className="break-words text-stone-700">{formatCustomer(row.customer_name)}</div>
                 <div className="break-words font-semibold text-ink">{row.raw_model || "—"}</div>
+                <MatchSummaryCell row={row} />
                 <div className="min-w-0 truncate text-stone-700" title={row.raw_description ?? ""}>
                   {row.raw_description || "—"}
                 </div>
@@ -217,25 +218,21 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
                 <div className="min-w-0 truncate text-stone-700" title={row.file_name}>
                   {row.file_name}
                 </div>
-                <ProductBindingCell
-                  rowId={row.id}
-                  rawModel={row.raw_model}
-                  rawDescription={row.raw_description}
-                  initialMatchedProduct={
-                    row.matched_product_id
-                      ? {
-                          id: row.matched_product_id,
-                          modelNo: row.matched_model_no,
-                          productName: row.matched_product_name ?? row.matched_model_no ?? row.matched_product_id,
-                          category: row.matched_category,
-                        }
-                      : null
-                  }
-                />
               </summary>
               <div className="border-t border-line bg-[#fbfaf6] px-4 py-4">
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <DetailBlock title="完整信息">
+                    <div className="mb-4 rounded-md border border-line bg-white p-3">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-stone-500">
+                        产品绑定
+                      </div>
+                      <ProductBindingCell
+                        rowId={row.id}
+                        rawModel={row.raw_model}
+                        rawDescription={row.raw_description}
+                        initialMatchedProduct={getMatchedProduct(row)}
+                      />
+                    </div>
                     <DetailLine label="客户" value={formatCustomer(row.customer_name)} />
                     <DetailLine label="日期" value={row.quote_date ?? "—"} />
                     <DetailLine label="品类" value={row.category} />
@@ -297,6 +294,31 @@ function normalizeFilters(params: Awaited<CustomerQuotesPageProps["searchParams"
     page: Number.isFinite(page) && page > 0 ? page : 1,
     sort,
     order,
+  };
+}
+
+function MatchSummaryCell({ row }: { row: CustomerQuoteRow }) {
+  if (!row.matched_product_id) {
+    return <span className="text-xs font-semibold text-stone-500">未绑定</span>;
+  }
+
+  return (
+    <span className="break-words text-sm font-semibold text-leaf">
+      {row.matched_model_no ?? row.matched_product_name ?? row.matched_product_id}
+    </span>
+  );
+}
+
+function getMatchedProduct(row: CustomerQuoteRow) {
+  if (!row.matched_product_id) {
+    return null;
+  }
+
+  return {
+    id: row.matched_product_id,
+    modelNo: row.matched_model_no,
+    productName: row.matched_product_name ?? row.matched_model_no ?? row.matched_product_id,
+    category: row.matched_category,
   };
 }
 
