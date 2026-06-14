@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { prisma } from "@/lib/prisma";
+import { ProductBindingCell } from "./product-binding-cell";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +102,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
     <div className="mx-auto max-w-7xl">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-leaf">V5.1</div>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-leaf">V5.2</div>
           <h1 className="mt-2 text-3xl font-semibold text-ink">历史客户报价</h1>
           <p className="mt-2 text-sm text-stone-600">
             搜索已导入的客户 FOB USD 报价记录；未匹配到产品库的历史价格也会显示。
@@ -190,7 +191,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
       </section>
 
       <section className="overflow-hidden rounded-md border border-line bg-paper shadow-panel">
-        <div className="grid grid-cols-[96px_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(220px,1.7fr)_110px_110px_minmax(180px,1.2fr)_minmax(180px,1.2fr)] gap-3 bg-[#3F4A35] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-white">
+        <div className="grid grid-cols-[96px_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(220px,1.7fr)_110px_110px_minmax(180px,1.2fr)_minmax(240px,1.4fr)] gap-3 bg-[#3F4A35] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-white">
           <SortableHeader label="日期" field="date" filters={filters} />
           <div>客户</div>
           <SortableHeader label="型号" field="model" filters={filters} />
@@ -204,7 +205,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
         <div className="divide-y divide-line bg-white">
           {rows.map((row) => (
             <details key={row.id} className="group">
-              <summary className="grid cursor-pointer list-none grid-cols-[96px_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(220px,1.7fr)_110px_110px_minmax(180px,1.2fr)_minmax(180px,1.2fr)] gap-3 px-4 py-3 text-sm hover:bg-cream/50">
+              <summary className="grid cursor-pointer list-none grid-cols-[96px_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(220px,1.7fr)_110px_110px_minmax(180px,1.2fr)_minmax(240px,1.4fr)] gap-3 px-4 py-3 text-sm hover:bg-cream/50">
                 <div className="font-medium text-ink">{formatQuoteDate(row.quote_date)}</div>
                 <div className="break-words text-stone-700">{formatCustomer(row.customer_name)}</div>
                 <div className="break-words font-semibold text-ink">{row.raw_model || "—"}</div>
@@ -216,18 +217,21 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
                 <div className="min-w-0 truncate text-stone-700" title={row.file_name}>
                   {row.file_name}
                 </div>
-                <div className="break-words">
-                  {row.matched_product_id && row.matched_model_no ? (
-                    <Link
-                      href={`/products?search=${encodeURIComponent(row.matched_model_no)}&productId=${encodeURIComponent(row.matched_product_id)}`}
-                      className="font-semibold text-leaf underline-offset-2 hover:underline"
-                    >
-                      {row.matched_model_no}
-                    </Link>
-                  ) : (
-                    <span className="text-stone-400">—</span>
-                  )}
-                </div>
+                <ProductBindingCell
+                  rowId={row.id}
+                  rawModel={row.raw_model}
+                  rawDescription={row.raw_description}
+                  initialMatchedProduct={
+                    row.matched_product_id
+                      ? {
+                          id: row.matched_product_id,
+                          modelNo: row.matched_model_no,
+                          productName: row.matched_product_name ?? row.matched_model_no ?? row.matched_product_id,
+                          category: row.matched_category,
+                        }
+                      : null
+                  }
+                />
               </summary>
               <div className="border-t border-line bg-[#fbfaf6] px-4 py-4">
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
