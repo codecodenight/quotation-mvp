@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-14
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V2.24)
+## Current State (after V2.19F)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -44,16 +44,19 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - PDF 导入产品参数提取 (V3.0H): `scripts/extract-params.ts --target=v3h` 对 G4G9/防潮灯/三防灯/风扇灯重跑参数提取；1,036 target products → 951 products with params；product_params 37,045→37,432
 - PDF manual-review 再评估 (V2.23): `scripts/pdf-review-v2.23.ts` 对 V2.21 的 10 份 manual-review PDF 重新按多档 y-tolerance 聚类、价格/型号信号和 longest-run 评分；结果：1 份 profile-ready（普照三防灯双色管B）、5 份 custom-parser-review、4 份 USD/FOB 客户价明确排除；不写 DB、不导入、不做 OCR
 - PDF 小批量补导 (V2.24): `S06-puzhao-sanfang-b` profile 导入普照三防灯双色管B PDF；+6 products +6 supplier_offers；解析成品尺寸、CTN Qty、CTN L/W/H；源 PDF 只读；V2.22 导入器支持 `PDF_IMPORT_VERSION/PDF_IMPORT_SLUG`，避免覆盖历史报告
+- 普照三防灯旧价格异常修正 (V2.25): `scripts/puzhao-price-audit-v2.25.ts` 审计确认 `PZ-HP-B1/B2` 6 条 offer（price=1/2 RMB）是 V2.24 PDF 产品的重复品（来自 2025-10 Excel 导入列错位）；删除 6 产品 + 6 offers + 36 params；V2.24 正确价格（13.38–36.36）保留
+- V2.24 PDF 产品参数提取 (V3.0I): `extract-params.ts --target=v3h` 对 6 个新三防灯产品补提参数；+42 params（9/6/6/9/6/6 per product）；watts/size_display/length_mm/width_mm/height_mm/series + 部分 voltage/cri/cct/material
+- 尼奥/瑞鑫/欧诺数据修补 (V2.19F): `scripts/data-fix-v2.19f.ts` 三 Part 修补：Part A 尼奥灯带 4/7 条价格修正（从源 Excel 含税价列提取，3 条源行无独立价格跳过）+ 4 条 price_history；Part B 瑞鑫面板灯 5 条规格行删除（0.7PS/0.8PS/295*1195/595*1195/595*595）；Part C 欧诺面板灯 20 条 currency RMB→USD（源表头明确 FOB PRICE USD）+ 2 条 3W/5W 欧诺错误 offer 删除（共享产品保留）
 
-### Data (after V2.24)
-- Products: 10,043 across 30 categories (V2.19A-D: -1,457 junk products cleaned; V2.22: +150 PDF products; V2.24: +6 PDF products)
-- Supplier offers: 11,097
+### Data (after V2.19F)
+- Products: 10,032 across 30 categories (V2.19A-D: -1,457 junk; V2.22: +150 PDF; V2.24: +6 PDF; V2.25: -6 dup; V2.19F: -5 spec rows)
+- Supplier offers: 11,084 (V2.19F: -7 offers, +20 currency fix)
 - Files in DB: 1,737 (includes Excel + PDF source records)
 - PDF files in DB: 677 (was 93)
 - Files (My Passport): 1,215 Excel + 617 PDF
-- Price history: 9,853 records
+- Price history: 9,857 records (V2.19F: +4 尼奥 price corrections)
 - Product images: 7,453 products have images
-- Product params: 37,432 (30 categories all have params; V3.0H added PDF import product params)
+- Product params: 37,433 (V3.0I: +42 三防灯 PDF params; V2.25: -36 dup params; V2.19F: -5 spec params)
 - Batch 1 categories growth: 投光灯 16→492, 面板灯 69→902, 线条灯 38→1,123, 路灯 15→213, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
 - Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
@@ -229,17 +232,18 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V3.0H | PDF 导入产品参数提取 | G4G9/防潮灯/三防灯/风扇灯 1,036 产品重跑参数提取；951 产品有参数；product_params 37,045→37,432 |
 | V2.23 | PDF manual-review 再评估 | 10 份 V2.21 manual-review PDF 只读复审；1 profile-ready（普照三防灯双色管B）/ 5 custom-parser-review / 4 USD 客户价排除 |
 | V2.24 | PDF 小批量补导 | 只导入 V2.23 确认的 S06 普照三防灯双色管B；+6 products +6 offers；CTN Qty/L/W/H 同步写入 |
+| V2.25 | 普照三防灯旧价格异常修正 | `PZ-HP-B1/B2` 6 条 price=1/2 确认为 V2.24 重复品（Excel 列错位）；删除 6 产品+6 offers+36 params |
+| V3.0I | V2.24 PDF 产品参数提取 | 6 个三防灯产品补提参数；+42 params；watts/size_display/dimensions/series/voltage/cri/cct/material |
+| V2.19F | 尼奥/瑞鑫/欧诺数据修补 | Part A: 尼奥 4/7 价格修正（源 Excel 含税价）；Part B: 瑞鑫 5 规格行删除；Part C: 欧诺 20 条 RMB→USD + 2 条错误 offer 删除 |
 
 ---
 
 ## What's Next
 
 ### 已定路线（按优先级）
-1. **V3.0I — V2.24 PDF 产品参数提取** — 三防灯新增 6 个产品当前 `product_params=0`，应重跑三防灯参数提取，让报价 Product Details 走参数化路径。
-2. **V2.25 — 普照三防灯旧价格异常审计** — V2.24 抽查发现 2025-10 Excel 来源的 `PZ-HP-B1/B2` 旧 offer 价格为 `1/2 RMB`，疑似序号/配置列被当价格；需只读审计后再决定修正/删除。
-3. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser。
-4. **V2.19F 小修补（按需）** — 尼奥 7 条价格修正；瑞鑫 ~9 条规格文本产品清理；欧诺价格货币确认
-5. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
+1. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser。
+2. **V2.19F 遗留** — 尼奥灯带 3 条仍有错误价格（2835-180/COB-240/COB-288），源 Excel 无独立价格列；瑞鑫 36/40W+PP0.7/0.8/1.0 审计未动；欧诺圆形/方形审计未动；48W model_no 碰撞（11 factories）需单独解决
+3. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -280,6 +284,9 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V3.0H — PDF 导入产品参数提取~~ ✅ G4G9/防潮灯/三防灯/风扇灯 重跑参数；product_params 37,045→37,432
 - ~~V2.23 — PDF manual-review 再评估~~ ✅ 10 份 manual-review PDF 只读复审；1 profile-ready / 5 custom-parser-review / 4 USD 客户价排除
 - ~~V2.24 — PDF 小批量补导~~ ✅ S06 普照三防灯双色管B PDF 导入；+6 products +6 offers；CTN Qty/L/W/H 写入
+- ~~V2.25 — 普照三防灯旧价格异常修正~~ ✅ commit 1132dcb — 6 条 price=1/2 重复品删除；V2.24 正确价格 13.38–36.36 保留
+- ~~V3.0I — V2.24 PDF 产品参数提取~~ ✅ commit 1ccb735 — 6 产品 +42 params；watts/size/dimensions/series
+- ~~V2.19F — 尼奥/瑞鑫/欧诺数据修补~~ ✅ commit c28513b — 尼奥 4 价格修正；瑞鑫 5 规格行删除；欧诺 20 条 RMB→USD + 2 错误 offer 删除
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -319,6 +326,10 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.23 复审结果说明：S06 普照三防灯双色管B是唯一可直接进入 V2.24 profile 导入的 manual-review PDF；S09/S13/S15/S16 都是 USD/FOB 客户价，继续严格排除，不得写入 `supplier_offers.purchase_price`；S14 同时含 RMB 与 USD，必须人工确认列语义后再写 parser
 - V2.24 导入器补强：普照三防灯 PDF parser 不再假设型号在第 1 列，改为行内查找 `PZ-`；型号清洗保留 `*`/`×`，避免 `PZ-HP-B-1*600` 被截断；remark 过滤 RMB 价格、尺寸和 CTN，避免 fallback 报价泄露采购价
 - V2.24 发现但未处理：DB 中已有 6 条 `PZ-HP-B1/B2` 普照三防灯旧 offer，价格为 `1/2 RMB`，source 指向 2025-10 Excel 文件；它们不是本次 S06 PDF 导入产生，需后续 V2.25 审计，不应在 V2.24 里盲删
+- V2.25 确认 `PZ-HP-B1/B2` 全部是 V2.24 PDF 产品的重复品（model_no 格式略不同：`B1-1*600` vs `B-1*600 18W`），旧价格 1/2 RMB 来自 Excel 导入列错位
+- V2.19F Part A 尼奥灯带源 Excel 表头快照：价格在 col T（含税价格），col G（LED Chip/m）才是被错导入的列（2835/5050 是芯片型号不是价格）。3 条 COB 行（rows 9/19/20）在源 Excel 中确实没有价格列，跳过是正确的
+- V2.19F Part C 欧诺源文件确认：`核价Wellux Quotation` 表头 row 5 col P 明确标注 `FOB PRICE (USD)`，20 条 offer 标记 RMB 是导入时的默认值错误。`3W`/`5W` 是来自地插灯文件的功率列被当价格+model_no
+- V2.19F 发现 48W model_no 碰撞：面板灯品类中 model_no="48W" 的产品挂了 11 个不同工厂的 offer（一群狼/中山呈明/凯益德/合力/宏硕/普照/景上/瑞鑫/鑫盟泰/锐晶/鹏荣），价格 0.3–48，来源文件跨品类（球泡/净化灯/三防灯/磁吸灯/灯管）。这是系统性的 model_no 碰撞问题，不是单个工厂的数据错误，需要单独解决
 
 ### Not Now
 - 通用 PDF 导入 UI（当前只有少量 PDF 适合导入，先用 profile-based 脚本）
