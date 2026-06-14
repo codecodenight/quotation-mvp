@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-14
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G/V5.0A-D
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G/V5.0A-E/V5.1
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V5.0D)
+## Current State (after V5.1)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -52,8 +52,10 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 历史客户报价建表+导入 (V5.0B): `customer_quote_files` + `customer_quote_rows` 独立表（raw SQL migration）；导入 161 个文件 398 个 sheet 6,139 行；FOB USD 97%（5,959 行）；不写 supplier_offers/products
 - 历史客户报价产品匹配 (V5.0C): `scripts/customer-quote-match-v5.0c.ts` 填充 `matched_product_id`；精确匹配 2,837 + 归一化匹配 10 = 2,847 行（46%）；未匹配原因：2,050 行无 raw_model + 1,242 行 model_no 不在产品库
 - 报价中心历史售价参考 UI (V5.0D): 已选产品 offer 选择器下方新增折叠式"历史售价参考"区域；有记录才显示；最多 10 条，按日期降序；客户名为 NULL 显示"内部核价"；batch 查询所有已选产品
+- 历史报价补匹配 (V5.0E): `scripts/customer-quote-rematch-v5.0e.ts` 激进归一化+品类交叉补匹配 55 行；匹配率 46%→47%（2,847→2,902）；剩余 3,237 行为空款号/序号型/产品库无候选，不再强匹配
+- 历史客户报价搜索页 (V5.1): `/customer-quotes` 独立搜索页；搜 raw_model/描述/价格/文件名；客户名/日期范围/匹配状态/品类筛选；排序+分页（50行/页）；行展开显示原始 JSON/来源/表头；已匹配产品可跳转；侧边栏新增"历史报价"入口
 
-### Data (after V5.0D)
+### Data (after V5.1)
 - Products: 10,032 across 30 categories (V2.19A-D: -1,457 junk; V2.22: +150 PDF; V2.24: +6 PDF; V2.25: -6 dup; V2.19F: -5 spec rows)
 - Supplier offers: 11,084 (V2.19F: -7 offers, +20 currency fix)
 - Files in DB: 1,737 (includes Excel + PDF source records)
@@ -246,6 +248,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V5.0B | 历史客户报价建表+导入 | customer_quote_files + customer_quote_rows；161 文件 6,139 行；FOB USD 97% |
 | V5.0C | 历史客户报价产品匹配 | 精确+归一化匹配 2,847 行（46%）；未匹配主因：无 raw_model 或 model_no 不在库 |
 | V5.0D | 报价中心历史售价参考 UI | 已选产品折叠式历史 FOB USD 参考；有记录才显示；batch 查询 |
+| V5.0E | 历史报价补匹配 | 激进归一化+品类交叉 +55 行；46%→47%；剩余不可安全自动匹配 |
+| V5.1 | 历史客户报价搜索页 | /customer-quotes；搜索+筛选+排序+分页+行展开；侧边栏入口 |
 
 ---
 
@@ -254,7 +258,7 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 ### 已定路线（按优先级）
 1. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser
 2. **48W model_no 碰撞拆分** — V2.19G 审计输出了拆分方案（4 keep on panel, 7 move），47 组通用 model_no 碰撞是系统性问题，需要专项处理
-3. **V5.0 后续** — 提升匹配率（当前 46%，2,050 行无 raw_model 是主瓶颈）；客户维度管理；历史售价趋势
+3. **V5 后续** — 人工匹配绑定界面；客户维度管理；历史售价趋势/导出
 4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
 
 ### 已完成
@@ -304,6 +308,8 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V5.0B — 历史客户报价建表+导入~~ ✅ commit cff8ba4 — customer_quote_files 398 + customer_quote_rows 6,139；FOB USD 5,959 行 97%
 - ~~V5.0C — 历史客户报价产品匹配~~ ✅ commit b8bf804 — 2,847 行 matched_product_id（46%）；精确 2,837 + 归一化 10
 - ~~V5.0D — 报价中心历史售价参考 UI~~ ✅ commit 4e8d434 — 已选产品折叠式历史 FOB USD 参考区域
+- ~~V5.0E — 历史报价补匹配~~ ✅ commit c25b382 — +55 行补匹配（46%→47%），剩余不可安全匹配
+- ~~V5.1 — 历史客户报价搜索页~~ ✅ commit 9a1cfa8 — /customer-quotes 搜索+筛选+分页+行展开
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
