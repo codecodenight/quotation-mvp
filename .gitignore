@@ -1,6 +1,7 @@
 node_modules/
 .next/
 prisma/dev.db
+prisma/dev.db.bak-*
 backups/
 data/images/
 sample-data/
