@@ -72,10 +72,53 @@ model Product {
   supplierOffers SupplierOffer[]
   quoteItems     QuoteItem[]
   params         ProductParam[]
+  customerQuoteRows CustomerQuoteRow[]
 
   @@index([productName])
   @@index([modelNo])
   @@map("products")
+}
+
+model CustomerQuoteFile {
+  id             Int      @id @default(autoincrement())
+  fileName       String   @map("file_name")
+  relativePath   String   @map("relative_path")
+  sheetName      String   @map("sheet_name")
+  customerName   String?  @map("customer_name")
+  quoteDate      String?  @map("quote_date")
+  formatType     String   @map("format_type")
+  rowCount       Int      @default(0) @map("row_count")
+  headerRow      Int?     @map("header_row")
+  headerSnapshot String?  @map("header_snapshot")
+  columnMapping  String?  @map("column_mapping")
+  importedAt     String   @default("") @map("imported_at")
+  rows           CustomerQuoteRow[]
+
+  @@unique([relativePath, sheetName])
+  @@map("customer_quote_files")
+}
+
+model CustomerQuoteRow {
+  id               Int      @id @default(autoincrement())
+  fileId           Int      @map("file_id")
+  rowNumber        Int      @map("row_number")
+  rawModel         String?  @map("raw_model")
+  rawDescription   String?  @map("raw_description")
+  salePriceUsd     Float?   @map("sale_price_usd")
+  salePriceText    String?  @map("sale_price_text")
+  rmbCost          Float?   @map("rmb_cost")
+  moq              String?
+  ctnQty           String?  @map("ctn_qty")
+  ctnSize          String?  @map("ctn_size")
+  remark           String?
+  rawRowJson       String?  @map("raw_row_json")
+  matchedProductId String?  @map("matched_product_id")
+
+  file           CustomerQuoteFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  matchedProduct Product?          @relation(fields: [matchedProductId], references: [id])
+
+  @@unique([fileId, rowNumber])
+  @@map("customer_quote_rows")
 }
 
 model ProductParam {
