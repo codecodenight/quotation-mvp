@@ -69,6 +69,17 @@ type CustomerQuoteRow = {
   matched_product_name: string | null;
   matched_category: string | null;
   category: string;
+  sameProductHistory: SameProductHistoryRow[];
+};
+
+type SameProductHistoryRow = {
+  id: number;
+  matched_product_id: string;
+  raw_model: string | null;
+  sale_price_usd: number | null;
+  quote_date: string | null;
+  customer_name: string | null;
+  file_name: string;
 };
 
 type SummaryRow = {
@@ -233,6 +244,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
                         initialMatchedProduct={getMatchedProduct(row)}
                       />
                     </div>
+                    <SameProductHistoryBlock currentRowId={row.id} history={row.sameProductHistory} />
                     <DetailLine label="客户" value={formatCustomer(row.customer_name)} />
                     <DetailLine label="日期" value={row.quote_date ?? "—"} />
                     <DetailLine label="品类" value={row.category} />
@@ -324,7 +336,7 @@ function getMatchedProduct(row: CustomerQuoteRow) {
 
 async function loadRows(filters: Filters, offset: number): Promise<CustomerQuoteRow[]> {
   const where = buildWhere(filters);
-  return prisma.$queryRawUnsafe<CustomerQuoteRow[]>(
+  const rows = await prisma.$queryRawUnsafe<Omit<CustomerQuoteRow, "sameProductHistory">[]>(
     `SELECT
        cqr.id,
        cqr.row_number,
@@ -355,6 +367,48 @@ async function loadRows(filters: Filters, offset: number): Promise<CustomerQuote
     PAGE_SIZE,
     offset,
   );
+
+  const historyByProductId = await loadSameProductHistory(rows);
+  return rows.map((row) => ({
+    ...row,
+    sameProductHistory: row.matched_product_id ? (historyByProductId.get(row.matched_product_id) ?? []) : [],
+  }));
+}
+
+async function loadSameProductHistory(rows: Array<Pick<CustomerQuoteRow, "matched_product_id">>) {
+  const productIds = Array.from(
+    new Set(rows.map((row) => row.matched_product_id).filter((id): id is string => Boolean(id))),
+  );
+  const historyByProductId = new Map<string, SameProductHistoryRow[]>();
+
+  if (productIds.length === 0) {
+    return historyByProductId;
+  }
+
+  const placeholders = productIds.map(() => "?").join(", ");
+  const historyRows = await prisma.$queryRawUnsafe<SameProductHistoryRow[]>(
+    `SELECT
+       cqr.id,
+       cqr.matched_product_id,
+       cqr.raw_model,
+       cqr.sale_price_usd,
+       cqf.quote_date,
+       cqf.customer_name,
+       cqf.file_name
+     FROM customer_quote_rows cqr
+     JOIN customer_quote_files cqf ON cqf.id = cqr.file_id
+     WHERE cqr.matched_product_id IN (${placeholders})
+     ORDER BY cqr.matched_product_id ASC, cqf.quote_date DESC, cqr.id DESC`,
+    ...productIds,
+  );
+
+  for (const historyRow of historyRows) {
+    const current = historyByProductId.get(historyRow.matched_product_id) ?? [];
+    current.push(historyRow);
+    historyByProductId.set(historyRow.matched_product_id, current);
+  }
+
+  return historyByProductId;
 }
 
 async function loadTotalRows(filters: Filters): Promise<number> {
@@ -585,6 +639,54 @@ function DetailLine({ label, value }: { label: string; value: string }) {
     <div className="grid gap-2 md:grid-cols-[92px_minmax(0,1fr)]">
       <div className="text-xs font-semibold text-stone-500">{label}</div>
       <div className="break-words text-stone-800">{value || "—"}</div>
+    </div>
+  );
+}
+
+function SameProductHistoryBlock({
+  currentRowId,
+  history,
+}: {
+  currentRowId: number;
+  history: SameProductHistoryRow[];
+}) {
+  const otherRows = history.filter((row) => row.id !== currentRowId);
+  if (otherRows.length === 0) {
+    return null;
+  }
+
+  const visibleRows = otherRows.slice(0, 10);
+  const hiddenCount = Math.max(0, otherRows.length - visibleRows.length);
+
+  return (
+    <div className="mb-4 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-amber-800">
+        同产品报价记录（共 {history.length} 条）
+      </div>
+      <div className="overflow-hidden rounded-md border border-amber-200 bg-white">
+        <div className="grid grid-cols-[88px_minmax(88px,0.8fr)_88px_minmax(140px,1.4fr)] gap-2 bg-amber-100 px-3 py-2 text-xs font-semibold text-stone-700">
+          <div>日期</div>
+          <div>客户</div>
+          <div className="text-right">FOB USD</div>
+          <div>来源文件</div>
+        </div>
+        <div className="divide-y divide-amber-100">
+          {visibleRows.map((row) => (
+            <div
+              key={row.id}
+              className="grid grid-cols-[88px_minmax(88px,0.8fr)_88px_minmax(140px,1.4fr)] gap-2 px-3 py-2 text-xs text-stone-700"
+            >
+              <div>{formatQuoteDate(row.quote_date)}</div>
+              <div className="break-words">{formatCustomer(row.customer_name)}</div>
+              <div className="text-right font-semibold text-ink">{formatUsd(row.sale_price_usd, null)}</div>
+              <div className="min-w-0 truncate" title={row.file_name}>
+                {row.file_name}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {hiddenCount > 0 ? <div className="mt-2 text-xs text-amber-800">还有 {hiddenCount} 条...</div> : null}
     </div>
   );
 }

@@ -1,16 +1,19 @@
 # HANDOFF.md — Session Context for Cold Start
 
 Last updated: 2026-06-14
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G/V5.0A-E/V5.1
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G/V5.0A-E/V5.1/V5.4/V7.0A-B
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V5.1)
+## Current State (after V7.0B + V5.4)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
+- Historical customer FOB USD quote search + manual product binding (/customer-quotes)
+- Historical quote expanded rows show same-product FOB USD history after a product is bound (V5.4)
+- Customer quote file customer names normalized/extracted where safe (V5.4: 79→116 named records)
 - Image extraction from .xlsx (zip + drawing anchors) and .xls (LibreOffice conversion)
 - Multi-column merge import (V1.9): specs spread across Power/Voltage/CCT/etc. columns get merged into Product Details
 - Price cleaning: strips $, ¥, currency suffixes during import; V2.7 fix: ¥ symbol priority in mixed spec+price cells
@@ -54,11 +57,14 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 报价中心历史售价参考 UI (V5.0D): 已选产品 offer 选择器下方新增折叠式"历史售价参考"区域；有记录才显示；最多 10 条，按日期降序；客户名为 NULL 显示"内部核价"；batch 查询所有已选产品
 - 历史报价补匹配 (V5.0E): `scripts/customer-quote-rematch-v5.0e.ts` 激进归一化+品类交叉补匹配 55 行；匹配率 46%→47%（2,847→2,902）；剩余 3,237 行为空款号/序号型/产品库无候选，不再强匹配
 - 历史客户报价搜索页 (V5.1): `/customer-quotes` 独立搜索页；搜 raw_model/描述/价格/文件名；客户名/日期范围/匹配状态/品类筛选；排序+分页（50行/页）；行展开显示原始 JSON/来源/表头；已匹配产品可跳转；侧边栏新增"历史报价"入口
+- 源文件本地归档迁移 (V7.0A-B): 审计确认 682 个 My Passport 文件被 supplier_offers/price_history 引用；迁移 681 个到 `data/source-archive/` 并将 files.volume_name 切到 `local`；1 个同名 local relative_path 冲突文件保留在 My Passport 并记录在 `docs/v7.0b-migration-report.md`
 
-### Data (after V5.1)
-- Products: 10,032 across 30 categories (V2.19A-D: -1,457 junk; V2.22: +150 PDF; V2.24: +6 PDF; V2.25: -6 dup; V2.19F: -5 spec rows)
-- Supplier offers: 11,084 (V2.19F: -7 offers, +20 currency fix)
+### Data (after V7.0B + V5.4)
+- Products: 10,226 across 30 categories (V6.2B: +187 from cross-category collision splits; V6.0: +7 from 48W split) (V2.19A-D: -1,457 junk; V2.22: +150 PDF; V2.24: +6 PDF; V2.25: -6 dup; V2.19F: -5 spec rows)
+- Supplier offers: 11,084 (V6.2B: 302 offers migrated to new products, total unchanged) (V2.19F: -7 offers, +20 currency fix)
 - Files in DB: 1,737 (includes Excel + PDF source records)
+- Files by volume after V7.0B: local 693 / My Passport 1,044
+- Source archive: 681 referenced files copied to `data/source-archive/` (~4.40 GB); 15 supplier_offers still reference the one collision-skipped My Passport file
 - PDF files in DB: 677 (was 93)
 - Files (My Passport): 1,215 Excel + 617 PDF
 - Price history: 9,857 records (V2.19F: +4 尼奥 price corrections)
@@ -69,7 +75,7 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
 - Tube/bulb split growth: 球泡 151→341 (+190), 灯管 8→84 (+76)
 - Outdoor factory import (V2.18/B): 充电灯 0→7, 投光灯 +48, 面板灯 +16, 路灯 +16, 工作灯 +12, 太阳能壁灯 +6, Highbay +3
-- **Historical customer quotes (V5.0B-C)**: customer_quote_files 398 records, customer_quote_rows 6,139 rows (5,959 with FOB USD), 2,847 matched to products (46%)
+- **Historical customer quotes (V5.0B-E + V5.4)**: customer_quote_files 398 records, customer_quote_rows 6,139 rows (5,959 with FOB USD), 2,902 matched to products (47%); customer_name coverage 116/398 (29.1%) after V5.4; V5.2 adds manual product binding UI on /customer-quotes; V5.4 expanded detail shows same-product quote history
 
 ### Data Sources on Disk (reorganized 2026-06-11)
 User reorganized the external hard drive from a flat structure (~60 top-level dirs) to a hierarchical structure:
@@ -250,16 +256,33 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V5.0D | 报价中心历史售价参考 UI | 已选产品折叠式历史 FOB USD 参考；有记录才显示；batch 查询 |
 | V5.0E | 历史报价补匹配 | 激进归一化+品类交叉 +55 行；46%→47%；剩余不可安全自动匹配 |
 | V5.1 | 历史客户报价搜索页 | /customer-quotes；搜索+筛选+排序+分页+行展开；侧边栏入口 |
+| V5.2 | 历史报价人工绑定产品 | /customer-quotes 未匹配行可搜索产品库并绑定/解绑；Server Action + Client Component 分离 |
+| V5.2A | 去掉页面硬编码版本标签 | header "V5.2" → "历史报价"，与 sidebar 一致 |
+| V5.2B | 修复绑定按钮交互 | ProductBindingCell 从 summary 行移到展开区域；新增 MatchSummaryCell 行内显示匹配状态；列顺序调整（匹配列移至型号后） |
+| V6.0 | 48W 跨品类碰撞拆分 | 11 offer 挂同一面板灯产品 → 4 keep + 7 move；新建 7 个 48W 产品（吸顶灯/球泡/灯管/净化灯/三防灯/线条灯/磁吸灯）；鑫盟泰按文件名归灯管不归球泡 |
+| V6.1 | 跨品类碰撞只读审计 | 155 碰撞组（≥3 offers/product）：97 正常 + 54 疑似跨品类 + 4 无法判断；品类推断用 source path 关键词匹配（26 规则 + 球泡灯管合并目录特殊处理）；201 个 NULL source offer 不在碰撞组内 |
+| V6.2A | 跨品类碰撞拆分计划（只读） | 54 组 470 offer → 311 auto-safe / 92 review-needed / 67 skip；190 个 target buckets；4 个 FK 引用产品标记风险；发现 SL-* 太阳能产品假阳性（太阳能 vs 太阳能壁灯命名差异） |
+| V6.2B | 执行 auto-safe 碰撞拆分 | 排除 3 个 SL-* 假阳性后，新建 187 产品，迁移 302 offers；products 10039→10226；4 个空壳原产品保留未删；product_params/price_history 不动（schema 无 offer 级 FK）；9 项后验证全 PASS |
+| V7.0A | 硬盘依赖审计 | 只读审计 files/FK/运行时依赖；682 个 My Passport 文件被 supplier_offers/price_history 引用，约 4.42GB；产品图片 0 条外置硬盘路径 |
+| V7.0B | 源文件本地归档迁移 | 备份 DB 后复制 681 个引用源文件到 `data/source-archive/`，files local 12→693；1 个 relative_path 冲突文件保留 My Passport；FK 完整性验证 PASS |
+| V5.4 | 客户名规范化 + 同产品历史售价 | customer_quote_files 有客户名记录 79→116；/customer-quotes 展开已绑定行时显示同产品历史 FOB USD 记录（最多 10 条） |
+| V5.3 Spike | 历史报价匹配策略调研 | V6.2B 后再匹配 0 新增；50 条抽样：24 match-possible / 5 weak / 21 no-candidates；纯数字 raw_model 无候选；~795 行适合半自动候选建议；结论：不做全量模糊匹配，设计候选建议 + 人工确认 UI |
 
 ---
 
 ## What's Next
 
-### 已定路线（按优先级）
-1. **PDF custom-parser review（按需）** — V2.23 的 S01 迪闻灯带、S04 凯晟德 TG、S07 汇盈聚磁吸、S08 进成面板、S14 蓝德赛太阳能壁灯有价格信号但结构不稳定或混 RMB/USD；需要人工看样本后再决定是否写单文件 parser
-2. **48W model_no 碰撞拆分** — V2.19G 审计输出了拆分方案（4 keep on panel, 7 move），47 组通用 model_no 碰撞是系统性问题，需要专项处理
-3. **V5 后续** — 人工匹配绑定界面；客户维度管理；历史售价趋势/导出
-4. **Desktop packaging (Tauri)** — 非技术用户可脱离终端使用
+### 已定路线（按风险优先级，非版本号顺序）
+1. ~~**V6.0：48W 碰撞拆分**~~ ✅
+2. ~~**V6.1：通用 model_no 碰撞审计**~~ ✅
+3. ~~**V6.2A：碰撞拆分计划（只读）**~~ ✅
+4. ~~**V6.2B：执行 auto-safe 碰撞拆分**~~ ✅
+5. ~~**V5.3 Spike：历史报价匹配策略调研**~~ ✅ — 0 新增安全匹配，~795 行适合半自动候选建议 + 人工确认
+6. **V7.0A：硬盘依赖审计** — 审计 files 表中哪些路径仍指向外置硬盘，独立于主线可随时执行
+7. **V7.0B：源文件本地归档迁移** — 把被引用的源文件复制到项目本地
+8. **V5.4：客户管理 / 历史售价趋势** — 业务体验增强
+9. **Tauri 桌面打包** — 等数据模型和核心流程稳定后再做
+10. **PDF custom-parser / enrichment-only（按需）** — 边际收益已下降
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -310,6 +333,14 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V5.0D — 报价中心历史售价参考 UI~~ ✅ commit 4e8d434 — 已选产品折叠式历史 FOB USD 参考区域
 - ~~V5.0E — 历史报价补匹配~~ ✅ commit c25b382 — +55 行补匹配（46%→47%），剩余不可安全匹配
 - ~~V5.1 — 历史客户报价搜索页~~ ✅ commit 9a1cfa8 — /customer-quotes 搜索+筛选+分页+行展开
+- ~~V5.2 — 历史报价人工绑定产品~~ ✅ commit f9e3e52 — 未匹配行搜索+绑定/解绑；Server Action + ProductBindingCell Client Component
+- ~~V5.2A — 去掉页面硬编码版本标签~~ ✅ commit 9be2c16 — header "V5.2"→"历史报价"
+- ~~V5.2B — 修复绑定按钮交互~~ ✅ commit 785c61b — ProductBindingCell 移至展开区域，解决 details/summary 点击冲突；真实验收确认 SL-W-B-1→SL-W-B 绑定后报价页显示 $5.81 历史售价参考
+- ~~V6.0 — 48W 跨品类碰撞拆分~~ ✅ commit c5d63c2 — 7 offer 迁移到 7 个新品类产品，原面板灯保留 4 offer；products 10032→10039
+- ~~V6.1 — 跨品类碰撞只读审计~~ ✅ commit d03e4c4 — 155 碰撞组：97 正常 + 54 疑似跨品类 + 4 无法判断；品类推断 26 规则 + 球泡灯管特殊处理
+- ~~V6.2A — 跨品类碰撞拆分计划~~ ✅ commit 69b4116 — 54 组 470 offer 分层：311 auto-safe / 92 review-needed / 67 skip；190 target buckets
+- ~~V6.2B — 执行 auto-safe 碰撞拆分~~ ✅ commit c51766e — 排除 3 SL-* 假阳性后新建 187 产品，迁移 302 offers；products 10039→10226；9 项后验证全 PASS
+- ~~V5.3 Spike — 历史报价匹配策略调研~~ ✅ commit 8a7d902 — 0 新增安全匹配；50 抽样 24/5/21 split；~795 行适合半自动候选建议；结论：候选建议 UI，不做全量模糊匹配
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -355,6 +386,11 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V2.19G 确认 V2.19F 遗留全部收口：尼奥 3 条 COB 行源 Excel 确实没有独立价格列（rows 9/19/20 无价格单元格），标记待人工补价而非代码修复是正确处置；瑞鑫 PP 和 36/40W 有 params/图片不该删；欧诺圆形/方形有合理 RMB 价格保留
 - V5.0 方向确立：`supplier_offers.purchase_price` 只放采购价（工厂 RMB），历史客户 FOB USD 售价需要独立数据层。`发客户报价单汇总/` 约 176 个 Excel（151 核价 + 25 To客户），24 品类子目录。V5.0A spike 先验证格式稳定性和字段可提取性
 - V2.19F 发现 48W model_no 碰撞：面板灯品类中 model_no="48W" 的产品挂了 11 个不同工厂的 offer（一群狼/中山呈明/凯益德/合力/宏硕/普照/景上/瑞鑫/鑫盟泰/锐晶/鹏荣），价格 0.3–48，来源文件跨品类（球泡/净化灯/三防灯/磁吸灯/灯管）。这是系统性的 model_no 碰撞问题，不是单个工厂的数据错误，需要单独解决
+- V6.1 审计规模超预期：原估计"真碰撞个位数"，实际 54 组疑似跨品类碰撞。几乎全是纯瓦数 model_no（24W/18W/30W...），说明 batch import 时不同品类文件里的同瓦数行被合并到一个产品上了
+- V6.2A 发现品类命名假阳性：SL-FA-60W/SL-FD-100W/SL-FD-200W 三个产品 product.category="太阳能" 但推断品类="太阳能壁灯"，是命名差异不是真碰撞。且这三个产品持有 52 条 customer_quote_rows + 6 条 quote_items FK 引用，迁移后会变成 0-offer 产品。V6.2B 正确排除
+- V6.2B 发现 products 表实际 schema 与任务文件假设不符：无 min_price/max_price/avg_price/unit 字段；product_params 无 supplier_offer_id；price_history 无 product_id。Codex 正确适配，params 保持不动（无法精准按 offer 拆分），price_history 通过 supplier_offer_id 间接关联不需更新
+- V5.3 Spike 匹配天花板确认：V6.2B 新建 187 产品后 exact/normalized 再匹配仍为 0，原因是新旧产品共享 model_no 导致歧义增加而非减少。剩余 1,657 行有 raw_model 但产品库无唯一匹配：48% 可通过前缀/品类+瓦数找到候选（但需人工确认），42% 是纯数字行号无法匹配
+- V5.3 Spike 硬盘依赖初探：files 表 1,725 条 volume_name="My Passport" / 12 条 "local"；10,837 条 supplier_offers 引用外置硬盘文件；产品图片已在本地 data/images/；DB 数据独立于硬盘但源文件溯源依赖硬盘
 
 ### Not Now
 - 通用 PDF 导入 UI（当前只有少量 PDF 适合导入，先用 profile-based 脚本）

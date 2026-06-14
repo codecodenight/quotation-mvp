@@ -18,3 +18,4 @@ outputs/
 .claude/settings.local.json
 tsconfig.tsbuildinfo
 /generated/prisma
+data/source-archive/
