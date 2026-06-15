@@ -3,6 +3,7 @@
 import { Bot, Download, FileSpreadsheet, Loader2, Plus, Search, Send, Trash2, X } from "lucide-react";
 import Image from "next/image";
 import { FormEvent, useMemo, useState, useTransition } from "react";
+import ReactMarkdown from "react-markdown";
 
 import {
   generateQuoteFromChatDraft,
@@ -228,7 +229,7 @@ export function ChatClient() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-[#f7f3e8] text-ink">
+    <div className="flex min-h-screen bg-[#f7f3e8] text-ink">
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-line bg-paper px-6">
           <div className="flex items-center gap-3">
@@ -346,7 +347,13 @@ function ChatMessageView({
           isUser ? "border-ink bg-ink text-white" : "border-line bg-paper text-ink"
         }`}
       >
-        <div className="whitespace-pre-wrap text-sm leading-6">{message.text}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap text-sm leading-6">{message.text}</div>
+        ) : (
+          <div className="prose prose-sm prose-stone max-w-none prose-headings:my-2 prose-p:my-2 prose-table:text-sm prose-th:bg-[#3F4A35] prose-th:text-white prose-td:border prose-td:border-line prose-th:border prose-th:border-line">
+            <ReactMarkdown>{message.text}</ReactMarkdown>
+          </div>
+        )}
         {!isUser && message.toolResults.length > 0 ? (
           <div className="mt-3 flex flex-col gap-3">
             {message.toolResults.map((result, index) => (
@@ -497,7 +504,7 @@ function OfferComparisonTable({
 
 function HistoryTable({ result }: { result: CustomerHistoryResult }) {
   if (result.rows.length === 0) {
-    return <div className="rounded-md border border-line bg-white p-3 text-sm text-stone-600">没有找到历史客户报价。</div>;
+    return <div className="rounded-md border border-line bg-white p-3 text-sm text-stone-600">没有找到历史客户报价记录。</div>;
   }
   return (
     <div className="overflow-hidden rounded-md border border-line bg-white">
@@ -524,7 +531,7 @@ function HistoryTable({ result }: { result: CustomerHistoryResult }) {
 
 function FactoryComparisonCard({ result }: { result: FactoryComparisonResult }) {
   if (result.comparison.length === 0) {
-    return <div className="rounded-md border border-line bg-white p-3 text-sm text-stone-600">没有可对比的工厂报价。</div>;
+    return <div className="rounded-md border border-line bg-white p-3 text-sm text-stone-600">没有找到该品类的工厂报价对比。</div>;
   }
   return (
     <div className="grid gap-2">

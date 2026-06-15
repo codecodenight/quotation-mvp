@@ -5,7 +5,7 @@ import type {
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions";
 
-import { createQuote, previewQuote } from "@/app/quotes/actions";
+import { createQuote, previewQuote } from "@/app/(admin)/quotes/actions";
 import { CHAT_TOOL_DEFINITIONS, buildChatQuoteFormData, executeChatTool, type ChatQuoteDraftInput, type ChatToolResult } from "@/lib/chat-tools";
 import { CHAT_SYSTEM_PROMPT, DEEPSEEK_MODEL, getDeepSeekClient } from "@/lib/deepseek";
 
