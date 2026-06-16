@@ -1,13 +1,13 @@
 # HANDOFF.md — Session Context for Cold Start
 
-Last updated: 2026-06-14
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V4.5 plus V2.22/V3.0H/V2.23/V2.24/V2.25/V3.0I/V2.19F/V2.19G/V5.0A-E/V5.1/V5.4/V7.0A-B
+Last updated: 2026-06-16
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V10.3
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V7.0B + V5.4)
+## Current State (after V10.3)
 
 ### System Capabilities
 - Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
@@ -58,18 +58,23 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 历史报价补匹配 (V5.0E): `scripts/customer-quote-rematch-v5.0e.ts` 激进归一化+品类交叉补匹配 55 行；匹配率 46%→47%（2,847→2,902）；剩余 3,237 行为空款号/序号型/产品库无候选，不再强匹配
 - 历史客户报价搜索页 (V5.1): `/customer-quotes` 独立搜索页；搜 raw_model/描述/价格/文件名；客户名/日期范围/匹配状态/品类筛选；排序+分页（50行/页）；行展开显示原始 JSON/来源/表头；已匹配产品可跳转；侧边栏新增"历史报价"入口
 - 源文件本地归档迁移 (V7.0A-B): 审计确认 682 个 My Passport 文件被 supplier_offers/price_history 引用；迁移 681 个到 `data/source-archive/` 并将 files.volume_name 切到 `local`；1 个同名 local relative_path 冲突文件保留在 My Passport 并记录在 `docs/v7.0b-migration-report.md`
+- 彻底清除移动硬盘依赖 (V7.1): 碰撞文件 15 条 offer 迁移到本地副本 + 删除 1,044 条 My Passport 文件记录；files 表 1,737→693 全 local
+- 空壳产品清理 (V6.3): 删除 4 个 0-offer 空壳产品（16W/32W/70W 面板灯 + 2835 路灯）+ 17 条 product_params
+- 超长 model_no 清理 (V2.26): 15 个 model_no > 200 chars 的产品缩短为 `{工厂}-{品类码}-{瓦数}W-{序号}` 格式，原始规格文本移入 remark
+- 文件路径可移植性 (V7.2): `file-paths.ts` 新增 3 级候选路径解析链（cwd+relative_path → marker-based snapshot extraction → absolute_path_snapshot fallback）；693/693 文件和 7,449/7,449 产品图片均可访问
+- 客户名大小写修正 (V5.4-fix): 40 行 customer_quote_files 客户编码大小写修正（Htf→HTF 等）+ 1 行误导入记录删除
 
-### Data (after V7.0B + V5.4)
-- Products: 10,226 across 30 categories (V6.2B: +187 from cross-category collision splits; V6.0: +7 from 48W split) (V2.19A-D: -1,457 junk; V2.22: +150 PDF; V2.24: +6 PDF; V2.25: -6 dup; V2.19F: -5 spec rows)
-- Supplier offers: 11,084 (V6.2B: 302 offers migrated to new products, total unchanged) (V2.19F: -7 offers, +20 currency fix)
-- Files in DB: 1,737 (includes Excel + PDF source records)
-- Files by volume after V7.0B: local 693 / My Passport 1,044
-- Source archive: 681 referenced files copied to `data/source-archive/` (~4.40 GB); 15 supplier_offers still reference the one collision-skipped My Passport file
-- PDF files in DB: 677 (was 93)
-- Files (My Passport): 1,215 Excel + 617 PDF
-- Price history: 9,857 records (V2.19F: +4 尼奥 price corrections)
-- Product images: 7,453 products have images
-- Product params: 37,433 (V3.0I: +42 三防灯 PDF params; V2.25: -36 dup params; V2.19F: -5 spec params)
+### Data (after V10.3)
+- Products: 10,522 across 31 categories (V10.3: +300 from unlinked file import)
+- Supplier offers: 12,379 (V10.3: +1,295 new offers from 99 unlinked files)
+- Files in DB: 688 Excel files, 1 still unlinked (汇盈报价单（20系列灯具）)
+- Source archive: 681+ referenced files in `data/source-archive/` + `sample data/`
+- Price history: 9,857 records
+- Product images: 7,449 products have images
+- Product params: 47,156 (V10.0→V10.3: +9,740 from backfill+derive pipeline)
+- Param coverage: watts 56.8% (5,976) | lumens 14.4% (1,516) | efficacy 17.2% (1,813) | cri 12.2% (1,282) | cct 14.6% (1,540 unique) | pf 11.7% (1,231)
+- **Drive elimination: COMPLETE** — DB has 0 My Passport references, all source files local
+- **V10.3 known issue**: ~79 supplier_offers have incorrect prices (LiFePO4 battery voltages or serial numbers stored as purchase_price); file→product links are correct, only price field is wrong
 - Batch 1 categories growth: 投光灯 16→492, 面板灯 69→902, 线条灯 38→1,123, 路灯 15→213, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
 - Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
@@ -267,22 +272,51 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V7.0B | 源文件本地归档迁移 | 备份 DB 后复制 681 个引用源文件到 `data/source-archive/`，files local 12→693；1 个 relative_path 冲突文件保留 My Passport；FK 完整性验证 PASS |
 | V5.4 | 客户名规范化 + 同产品历史售价 | customer_quote_files 有客户名记录 79→116；/customer-quotes 展开已绑定行时显示同产品历史 FOB USD 记录（最多 10 条） |
 | V5.3 Spike | 历史报价匹配策略调研 | V6.2B 后再匹配 0 新增；50 条抽样：24 match-possible / 5 weak / 21 no-candidates；纯数字 raw_model 无候选；~795 行适合半自动候选建议；结论：不做全量模糊匹配，设计候选建议 + 人工确认 UI |
+| V5.4-fix | 客户名大小写修正 | FIXES 数组驱动：Htf→HTF 等 + 删除误导入记录；40 行 affected；事务包裹 |
+| V7.1 | 彻底清除移动硬盘依赖 | 碰撞文件（27MB size match 验证）15 条 offer 迁移到本地副本；1,044 条 My Passport file 记录删除；files 1,737→693 全 local；10 项验证全 PASS |
+| V6.3 | 空壳产品清理 | V6.2B 拆分后 4 个 0-offer 空壳产品 + 17 params 删除；products 10,226→10,222 |
+| V2.26 | 超长 model_no 清理 | 15 产品 model_no 缩短为 `{工厂短名}-{品类码}-{瓦数}W-{序号}` 格式（博登 12 + 欣益 2 + 汇孚 1）；原规格文本移入 remark（已有 remark 的保留不覆盖） |
+| V7.2 | 文件路径可移植性 | `file-paths.ts` 新增 candidateFromLocalSnapshot 函数，用 marker 从 absolute_path_snapshot 提取项目相对路径；693/693 文件 + 7,449 图片均可访问；发现 relative_path 裸文件名隐患 |
+| V7.3 | relative_path 修正 | 693 条 files 的 relative_path 从裸文件名改为项目相对路径 |
+| V9.0 | 对话式报价界面 | DeepSeek V4 Flash 集成 + 聊天式界面，替代 table/filter UI |
+| V9.0A | 聊天布局 + markdown 渲染 | 独立聊天布局 + 空结果澄清 |
+| V10.0 | 源文件参数审计 | `v10.0-source-audit.ts` 扫描 688 文件提取列名→param_key 映射；发现覆盖率严重不足 |
+| V10.1 | 参数回填管线 | `v10.1-param-backfill.ts` 从源 Excel 列值回填 product_params；product_params 37,416→45,513 |
+| V10.2 | 回填管线修复 + 派生参数 | 扩展 MODEL_HEADER_PATTERNS + sheet-name fallback；V10.4 derive watts/efficacy (+1,646)；product_params→46,613 |
+| V10.3 | 导入 100 个未链接文件 | `v10.3-import-unlinked.ts` 99/100 文件成功；+300 产品 +1,295 offers；重跑 backfill/derive/audit；products 10,222→10,522；product_params→47,156 |
 
 ---
 
 ## What's Next
 
-### 已定路线（按风险优先级，非版本号顺序）
-1. ~~**V6.0：48W 碰撞拆分**~~ ✅
-2. ~~**V6.1：通用 model_no 碰撞审计**~~ ✅
-3. ~~**V6.2A：碰撞拆分计划（只读）**~~ ✅
-4. ~~**V6.2B：执行 auto-safe 碰撞拆分**~~ ✅
-5. ~~**V5.3 Spike：历史报价匹配策略调研**~~ ✅ — 0 新增安全匹配，~795 行适合半自动候选建议 + 人工确认
-6. **V7.0A：硬盘依赖审计** — 审计 files 表中哪些路径仍指向外置硬盘，独立于主线可随时执行
-7. **V7.0B：源文件本地归档迁移** — 把被引用的源文件复制到项目本地
-8. **V5.4：客户管理 / 历史售价趋势** — 业务体验增强
-9. **Tauri 桌面打包** — 等数据模型和核心流程稳定后再做
-10. **PDF custom-parser / enrichment-only（按需）** — 边际收益已下降
+### 已定路线（按优先级）
+
+**阶段一：参数覆盖率提升（当前最高优先级）**
+
+用户明确要求："这一关不能跳也不能绕"。每个参数对终端用户都重要，缺参数的产品不可交付。
+
+1. **V10.6：扩展列名映射 + 第二轮回填** — 审计 Section I 显示大量未映射列：`实际功率`→watts (13 files)、`额定功率`→watts (10 files)、`整灯光效`→efficacy (11 files)、`显色指数`→cri (9 files)、`功率因数`→pf (12 files)、`灯具尺寸`→size_display (12 files) 等。扩展 HEADER_TO_PARAM 后重跑 backfill。
+2. **V10.7：列头即数值模式** — 面板灯/三防灯 Excel 用 "3W"/"5W"/"9W" 做列头，每个 (size行 × W列) 组合需写入 watts 参数。同理 "100lm/w"/"110lm/w" 列头代表光效等级。
+3. **V10.8：品类深挖** — 覆盖率最差品类需品类专用解析器或确认数据天花板：线条灯 watts 18.6%、磁吸灯 lumens 0%、皮线灯 watts 4.1%、灯带 watts 27.9%、镜前灯 watts 17.5%。
+
+**阶段二：数据天花板策略**
+
+对源文件确实没有的参数，三个选项需用户决策：
+- 找补充数据源（规格书、网站数据）
+- AI 辅助推断（DeepSeek 根据同品类已知参数推断缺失值，标注 confidence=low）
+- 接受天花板，UI 上做 graceful degradation
+
+**阶段三：对话式界面 + 打包**
+
+数据质量达标后回到产品形态：
+4. **V9.x → 对话式界面迭代** — 已有 V9.0/V9.0A 的 DeepSeek 集成 + 聊天布局基础
+5. **V8.0：Tauri MVP** — Next.js + Tauri 单文件安装包
+6. **V5.5：半自动匹配候选 UI**
+
+**按需 / 低优先级**
+- V10.3 价格列误检清洗（~79 条 offer price 不正确）
+- PDF custom-parser（5 份候选，边际收益低）
+- 客户实体管理（V3.1，当前 free-text 够用）
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -341,6 +375,13 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V6.2A — 跨品类碰撞拆分计划~~ ✅ commit 69b4116 — 54 组 470 offer 分层：311 auto-safe / 92 review-needed / 67 skip；190 target buckets
 - ~~V6.2B — 执行 auto-safe 碰撞拆分~~ ✅ commit c51766e — 排除 3 SL-* 假阳性后新建 187 产品，迁移 302 offers；products 10039→10226；9 项后验证全 PASS
 - ~~V5.3 Spike — 历史报价匹配策略调研~~ ✅ commit 8a7d902 — 0 新增安全匹配；50 抽样 24/5/21 split；~795 行适合半自动候选建议；结论：候选建议 UI，不做全量模糊匹配
+- ~~V5.4-fix — 客户名大小写修正~~ ✅ commit 0331d17 — 40 行 customer_quote_files 客户编码修正 + 1 行误导入删除
+- ~~V7.0A — 硬盘依赖审计~~ ✅ 682 个 My Passport 文件被 FK 引用；产品图片 0 条外置路径
+- ~~V7.0B — 源文件本地归档迁移~~ ✅ commit 9d4453b — 681 个引用源文件→data/source-archive/；1 个冲突文件保留
+- ~~V7.1 — 彻底清除移动硬盘依赖~~ ✅ commit d48f6c3 — 碰撞文件 15 offer 迁移 + 1,044 My Passport 记录删除；files 1,737→693
+- ~~V6.3 — 空壳产品清理~~ ✅ commit fd7a578 — 4 产品 + 17 params 删除；products 10,226→10,222
+- ~~V2.26 — 超长 model_no 清理~~ ✅ commit fd7a578 — 15 产品 model_no 缩短，原规格移入 remark；0 重复
+- ~~V7.2 — 文件路径可移植性~~ ✅ commit fd7a578 — file-paths.ts 3 级候选链；693/693 文件 + 7,449/7,449 图片全部可访问
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -391,6 +432,17 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V6.2B 发现 products 表实际 schema 与任务文件假设不符：无 min_price/max_price/avg_price/unit 字段；product_params 无 supplier_offer_id；price_history 无 product_id。Codex 正确适配，params 保持不动（无法精准按 offer 拆分），price_history 通过 supplier_offer_id 间接关联不需更新
 - V5.3 Spike 匹配天花板确认：V6.2B 新建 187 产品后 exact/normalized 再匹配仍为 0，原因是新旧产品共享 model_no 导致歧义增加而非减少。剩余 1,657 行有 raw_model 但产品库无唯一匹配：48% 可通过前缀/品类+瓦数找到候选（但需人工确认），42% 是纯数字行号无法匹配
 - V5.3 Spike 硬盘依赖初探：files 表 1,725 条 volume_name="My Passport" / 12 条 "local"；10,837 条 supplier_offers 引用外置硬盘文件；产品图片已在本地 data/images/；DB 数据独立于硬盘但源文件溯源依赖硬盘
+- V7.1 碰撞文件迁移：V7.0B 跳过的 1 个冲突文件（`(刘林姐发 汇总版本 已瘦身)核价线条灯...xlsx`，27.4MB），经 size match 验证后 15 条 offer 迁移到本地副本；冲突原因是 My Passport 版本和 local 版本同名不同 ID
+- V7.2 relative_path 裸文件名发现：693 条 files 的 relative_path 全部是裸文件名（如 `核价...xlsx`），不含 `data/source-archive/` 前缀。cwd+relative_path 解析路径不存在，全靠 candidateFromLocalSnapshot 的 marker 解析兜底。当前可用，但 Tauri 打包后 absolute_path_snapshot 失效，只有 relative_path 可靠，必须在打包前修正
+
+- V10.0 参数覆盖率审计揭示核心问题：导入管线只读几个固定列，光效/流明/CRI 等关键参数缺失 >85%。用户判断：缺参数的产品不可交付，AI 不能替代数据对齐
+- V10.1 backfill 从源 Excel 列值回填参数，首次实现 Excel 列→product_params 管道。HEADER_TO_PARAM 映射是可扩展的
+- V10.2 扩展回填修复：skipped sheets 从 1,203 降到 1,104；sheet-name-as-model fallback 救回部分无型号列的 sheet；luminous flux→lumens 修正（之前误映射到 luminous_efficacy）
+- V10.4 派生参数：从 product_name/model_no 提取 watts (+498)，从 watts+lumens 计算 luminous_efficacy (+1,148)；5 条太阳能壁灯 efficacy >250 lm/W 是假值（3W 太阳能板瓦数≠LED 瓦数）
+- V10.3 导入未链接文件：92% 产品复用率说明匹配逻辑质量高；面板灯 26 文件 2,465 行全部复用已有产品；价格列误检影响 ~79 条 offer（LiFePO4 Battery 和 序列 列被当做价格），但不影响参数覆盖率
+- V10.3 覆盖率反降（watts 57.7%→56.8%）：因为新增 300 产品但参数增量不足。V10.3 的价值是管道铺设（文件→产品链路），参数增长的瓶颈在列名映射和 Excel 结构解析
+- V10.0 审计发现列头即数值模式：面板灯/三防灯 Excel 用 "3W"/"5W"/"9W" 做列头，下面放价格。这种结构意味着参数编码在列头而非数据单元格中，需要专门处理逻辑
+- `extract-params.ts` 第 1902 行有 `deleteMany` 操作，会清除所有现有参数后重建。V10.x 管线的 backfill/derive 脚本都是只 INSERT 不 DELETE，避免破坏 excel_column 来源的参数。两条路径不能混用
 
 ### Not Now
 - 通用 PDF 导入 UI（当前只有少量 PDF 适合导入，先用 profile-based 脚本）
