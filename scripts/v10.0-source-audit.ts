@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import * as XLSX from "xlsx";
 
 const prisma = new PrismaClient();
@@ -116,6 +116,8 @@ const BUSINESS_PATTERNS = [
   /carton/i,
   /package/i,
   /packing/i,
+  /color\s*box/i,
+  /彩盒/i,
   /g\.?\s*w/i,
   /n\.?\s*w/i,
   /毛重/i,
@@ -126,7 +128,7 @@ const BUSINESS_PATTERNS = [
   /装箱/i,
 ];
 
-const PARAM_EXCLUSION_PATTERNS = [/power\s*cord/i, /线材规格/i];
+const PARAM_EXCLUSION_PATTERNS = [/power\s*cord/i, /power\s*supply/i, /power\s*solution/i, /线材规格/i, /电源/i];
 
 const HEADER_TO_PARAM: Record<string, string> = {
   power: "watts",
@@ -146,9 +148,11 @@ const HEADER_TO_PARAM: Record<string, string> = {
   cct: "cct",
   色温: "cct",
   可选色温: "cct",
+  "color temperature": "cct",
   cri: "cri",
   ra: "cri",
   显指: "cri",
+  显值: "cri",
   pf: "pf",
   "power factor": "pf",
   功率因数: "pf",
@@ -159,12 +163,15 @@ const HEADER_TO_PARAM: Record<string, string> = {
   光效: "luminous_efficacy",
   整灯光效: "luminous_efficacy",
   裸灯光效: "luminous_efficacy",
-  "luminous flux": "luminous_efficacy",
+  "luminous flux": "lumens",
   lumens: "lumens",
   lumen: "lumens",
   光通量: "lumens",
   "beam angle": "beam_angle",
+  angle: "beam_angle",
   光束角: "beam_angle",
+  角度: "beam_angle",
+  发光角度: "beam_angle",
   ip: "ip",
   "ip class": "ip",
   "ip grade": "ip",
@@ -181,6 +188,10 @@ const HEADER_TO_PARAM: Record<string, string> = {
   dimension: "size_display",
   尺寸: "size_display",
   产品尺寸: "size_display",
+  成品尺寸: "size_display",
+  灯体尺寸: "size_display",
+  灯具尺寸: "size_display",
+  整灯尺寸: "size_display",
   面环规格: "size_display",
   "product size": "size_display",
   "body size": "size_display",
@@ -188,6 +199,8 @@ const HEADER_TO_PARAM: Record<string, string> = {
   "led type": "led_type",
   "chip type": "led_type",
   chip: "led_type",
+  灯珠: "led_type",
+  灯珠类型: "led_type",
   base: "base",
   灯头: "base",
   warranty: "warranty",
@@ -207,6 +220,8 @@ const HEADER_TO_PARAM: Record<string, string> = {
   灯珠数: "led_count",
   灯珠颗数: "led_count",
   driver: "driver_type",
+  驱动方案: "driver_type",
+  驱动类型: "driver_type",
   "driver brand": "driver_brand",
   驱动: "driver_type",
   flicker: "flicker",
@@ -217,11 +232,16 @@ const HEADER_TO_PARAM: Record<string, string> = {
   spd: "spd",
   surge: "spd",
   "ambient temperature": "ambient_temp",
+  "working temperature": "ambient_temp",
   环境温度: "ambient_temp",
+  工作温度: "ambient_temp",
   height: "height_mm",
   高度: "height_mm",
   "maximum linkable power": "max_linkable_power",
   accessories: "accessories",
+  color: "color",
+  "body color": "color",
+  颜色: "color",
   note: "note",
   remark: "note",
   备注: "note",
@@ -365,7 +385,7 @@ async function loadCategoryParamCoverage(): Promise<CategoryParamCoverageRow[]> 
     SELECT COALESCE(p.category, '(未分类)') AS category, pp.param_key, COUNT(DISTINCT p.id) AS product_count
     FROM products p
     JOIN product_params pp ON pp.product_id = p.id
-    WHERE pp.param_key IN (${KEY_PARAMS.join(",")})
+    WHERE pp.param_key IN (${Prisma.join(KEY_PARAMS)})
     GROUP BY COALESCE(p.category, '(未分类)'), pp.param_key
   `;
 

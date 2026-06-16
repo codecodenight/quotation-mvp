@@ -8,10 +8,10 @@ import * as XLSX from "xlsx";
 
 const prisma = new PrismaClient();
 
-const REPORT_PATH = path.join("docs", "v10.1-backfill-report.md");
-const BACKUP_PATH = path.join("prisma", "dev.db.bak-v10.1");
+const REPORT_PATH = path.join("docs", "v10.2-backfill-report.md");
+const BACKUP_PATH = path.join("prisma", "dev.db.bak-v10.2");
 const HEADER_SCAN_ROWS = 10;
-const MIN_HEADER_CELLS = 5;
+const MIN_HEADER_CELLS = 3;
 const INSERT_BATCH_SIZE = 500;
 const APPLY_MODE = process.argv.includes("--apply");
 
@@ -138,7 +138,27 @@ type NormalizedParamValue = {
   unit: string | null;
 };
 
-const MODEL_HEADER_PATTERNS = [/item\s*no/i, /model/i, /型号/i, /product\s*no/i, /编号/i, /款号/i];
+type RowContext = {
+  wattsValue?: string;
+  rowValues?: unknown[];
+  paramColumns?: ParamColumn[];
+};
+
+const MODEL_HEADER_PATTERNS = [
+  /item\s*no/i,
+  /model/i,
+  /型号/i,
+  /product\s*no/i,
+  /编号/i,
+  /款号/i,
+  /^item$/i,
+  /^product\s*name$/i,
+  /^产品名称$/i,
+  /^品名$/i,
+  /^名称$/i,
+  /^specifications?$/i,
+  /^description$/i,
+];
 
 const BUSINESS_PATTERNS = [
   /price/i,
@@ -154,6 +174,8 @@ const BUSINESS_PATTERNS = [
   /carton/i,
   /package/i,
   /packing/i,
+  /color\s*box/i,
+  /彩盒/i,
   /g\.?\s*w/i,
   /n\.?\s*w/i,
   /毛重/i,
@@ -164,7 +186,7 @@ const BUSINESS_PATTERNS = [
   /装箱/i,
 ];
 
-const PARAM_EXCLUSION_PATTERNS = [/power\s*cord/i, /线材规格/i];
+const PARAM_EXCLUSION_PATTERNS = [/power\s*cord/i, /power\s*supply/i, /power\s*solution/i, /线材规格/i, /电源/i];
 
 const HEADER_TO_PARAM: Record<string, string> = {
   power: "watts",
@@ -184,9 +206,11 @@ const HEADER_TO_PARAM: Record<string, string> = {
   cct: "cct",
   色温: "cct",
   可选色温: "cct",
+  "color temperature": "cct",
   cri: "cri",
   ra: "cri",
   显指: "cri",
+  显值: "cri",
   pf: "pf",
   "power factor": "pf",
   功率因数: "pf",
@@ -197,12 +221,15 @@ const HEADER_TO_PARAM: Record<string, string> = {
   光效: "luminous_efficacy",
   整灯光效: "luminous_efficacy",
   裸灯光效: "luminous_efficacy",
-  "luminous flux": "luminous_efficacy",
+  "luminous flux": "lumens",
   lumens: "lumens",
   lumen: "lumens",
   光通量: "lumens",
   "beam angle": "beam_angle",
+  angle: "beam_angle",
   光束角: "beam_angle",
+  角度: "beam_angle",
+  发光角度: "beam_angle",
   ip: "ip",
   "ip class": "ip",
   "ip grade": "ip",
@@ -219,6 +246,10 @@ const HEADER_TO_PARAM: Record<string, string> = {
   dimension: "size_display",
   尺寸: "size_display",
   产品尺寸: "size_display",
+  成品尺寸: "size_display",
+  灯体尺寸: "size_display",
+  灯具尺寸: "size_display",
+  整灯尺寸: "size_display",
   面环规格: "size_display",
   "product size": "size_display",
   "body size": "size_display",
@@ -226,6 +257,8 @@ const HEADER_TO_PARAM: Record<string, string> = {
   "led type": "led_type",
   "chip type": "led_type",
   chip: "led_type",
+  灯珠: "led_type",
+  灯珠类型: "led_type",
   base: "base",
   灯头: "base",
   warranty: "warranty",
@@ -245,6 +278,8 @@ const HEADER_TO_PARAM: Record<string, string> = {
   灯珠数: "led_count",
   灯珠颗数: "led_count",
   driver: "driver_type",
+  驱动方案: "driver_type",
+  驱动类型: "driver_type",
   "driver brand": "driver_brand",
   驱动: "driver_type",
   flicker: "flicker",
@@ -255,11 +290,16 @@ const HEADER_TO_PARAM: Record<string, string> = {
   spd: "spd",
   surge: "spd",
   "ambient temperature": "ambient_temp",
+  "working temperature": "ambient_temp",
   环境温度: "ambient_temp",
+  工作温度: "ambient_temp",
   height: "height_mm",
   高度: "height_mm",
   "maximum linkable power": "max_linkable_power",
   accessories: "accessories",
+  color: "color",
+  "body color": "color",
+  颜色: "color",
   note: "note",
   remark: "note",
   备注: "note",
@@ -439,12 +479,23 @@ function scanFile(
       });
       const header = detectHeaderRow(rows.slice(0, HEADER_SCAN_ROWS));
       if (!header) {
-        result.skippedSheets.push({ fileName: file.fileName, sheetName, reason: "no header row with >= 5 cells" });
+        result.skippedSheets.push({ fileName: file.fileName, sheetName, reason: `no header row with >= ${MIN_HEADER_CELLS} cells` });
         continue;
       }
 
       const modelColumnIndex = findModelColumn(header.values);
       if (modelColumnIndex == null) {
+        const usedSheetNameFallback = trySheetNameAsModel({
+          file,
+          sheetName,
+          rows,
+          header,
+          existingParamKeys,
+          plannedParams,
+          matchFailures,
+          result,
+        });
+        if (usedSheetNameFallback) continue;
         result.skippedSheets.push({ fileName: file.fileName, sheetName, reason: "no model column" });
         continue;
       }
@@ -477,7 +528,10 @@ function scanFile(
         }
 
         result.scannedRows += 1;
-        const matched = matchProduct(excelModel, file.products);
+        const rowContext: RowContext = { rowValues: row, paramColumns };
+        const wattsCol = paramColumns.find((column) => column.paramKey === "watts");
+        if (wattsCol) rowContext.wattsValue = cellToString(row[wattsCol.index]);
+        const matched = matchProduct(excelModel, file.products, rowContext);
         if (!matched.product) {
           result.failedRows += 1;
           pushFailure(matchFailures, file.fileName, sheetName, rowNumber, excelModel, matched.reason);
@@ -485,39 +539,17 @@ function scanFile(
         }
 
         result.matchedRows += 1;
-        const beforeRowParamCount = plannedParams.length;
-
-        for (const column of paramColumns) {
-          const rawValue = cellToString(row[column.index]);
-          if (!isUsefulParamValue(rawValue)) continue;
-
-          const key = productParamKey(matched.product.productId, column.paramKey);
-          if (existingParamKeys.has(key)) {
-            result.existingParamsSkipped += 1;
-            continue;
-          }
-
-          const normalized = normalizeParamValue(column.paramKey, rawValue);
-          plannedParams.push({
-            id: randomUUID(),
-            productId: matched.product.productId,
-            productModel: matched.product.modelNo ?? "",
-            productName: matched.product.productName,
-            category: matched.product.category ?? "(未分类)",
-            sourceFileId: file.id,
-            fileName: file.fileName,
-            sheetName,
-            rowNumber,
-            header: column.header,
-            paramKey: column.paramKey,
-            rawValue,
-            normalizedValue: normalized.normalizedValue,
-            unit: normalized.unit,
-          });
-          existingParamKeys.add(key);
-        }
-
-        result.plannedParams += plannedParams.length - beforeRowParamCount;
+        result.plannedParams += planParamsForMatchedRow({
+          file,
+          sheetName,
+          row,
+          rowNumber,
+          product: matched.product,
+          paramColumns,
+          existingParamKeys,
+          plannedParams,
+          result,
+        });
       }
 
       if (result.matchedRows === sheetStart.matchedRows) {
@@ -582,15 +614,204 @@ function findParamColumns(headerValues: unknown[], modelColumnIndex: number): Pa
   return columns;
 }
 
+function trySheetNameAsModel(input: {
+  file: SourceFile;
+  sheetName: string;
+  rows: unknown[][];
+  header: HeaderInfo;
+  existingParamKeys: Set<string>;
+  plannedParams: PlannedParam[];
+  matchFailures: MatchFailure[];
+  result: FileResult;
+}): boolean {
+  const { file, sheetName, rows, header, existingParamKeys, plannedParams, matchFailures, result } = input;
+  const sheetModelCandidates = buildSheetModelCandidates(sheetName);
+  if (sheetModelCandidates.length === 0) return false;
+
+  const paramColumns = findParamColumns(header.values, -1);
+  if (paramColumns.length === 0) return false;
+
+  for (const sheetModel of sheetModelCandidates) {
+    const usedSheetNameFallback = trySheetModelCandidate({
+      file,
+      sheetName,
+      sheetModel,
+      rows,
+      header,
+      paramColumns,
+      existingParamKeys,
+      plannedParams,
+      matchFailures,
+      result,
+    });
+    if (usedSheetNameFallback) return true;
+  }
+
+  return false;
+}
+
+function trySheetModelCandidate(input: {
+  file: SourceFile;
+  sheetName: string;
+  sheetModel: string;
+  rows: unknown[][];
+  header: HeaderInfo;
+  paramColumns: ParamColumn[];
+  existingParamKeys: Set<string>;
+  plannedParams: PlannedParam[];
+  matchFailures: MatchFailure[];
+  result: FileResult;
+}): boolean {
+  const { file, sheetName, sheetModel, rows, header, paramColumns, existingParamKeys, plannedParams, matchFailures, result } = input;
+  const candidateProducts = file.products.filter((product) => {
+    const model = normalizeForMatch(product.modelNo ?? "");
+    const name = normalizeForMatch(product.productName);
+    return model.startsWith(sheetModel) || model.includes(sheetModel) || name.startsWith(sheetModel) || name.includes(sheetModel);
+  });
+  if (candidateProducts.length === 0) return false;
+
+  const sheetStart = {
+    scannedRows: result.scannedRows,
+    emptyModelRows: result.emptyModelRows,
+    matchedRows: result.matchedRows,
+    failedRows: result.failedRows,
+    existingParamsSkipped: result.existingParamsSkipped,
+    plannedParams: result.plannedParams,
+    plannedParamLength: plannedParams.length,
+    failureLength: matchFailures.length,
+  };
+  const wattsCol = paramColumns.find((column) => column.paramKey === "watts");
+  const dataRows = rows.slice(header.rowIndex + 1);
+
+  for (const [offset, row] of dataRows.entries()) {
+    if (isBlankRow(row)) continue;
+
+    const rowNumber = header.rowIndex + 2 + offset;
+    const wattsValue = wattsCol ? cellToString(row[wattsCol.index]) : "";
+    const wattsNumber = firstNumber(wattsValue);
+    const compositeModel = wattsNumber ? `${sheetModel}-${wattsNumber}W` : sheetModel;
+    const rowContext: RowContext = { rowValues: row, paramColumns };
+    if (wattsValue) rowContext.wattsValue = wattsValue;
+
+    result.scannedRows += 1;
+    let matched = matchProduct(compositeModel, candidateProducts, rowContext);
+    if (!matched.product && compositeModel !== sheetModel) {
+      matched = matchProduct(sheetModel, candidateProducts, rowContext);
+    }
+
+    if (!matched.product) {
+      result.failedRows += 1;
+      pushFailure(matchFailures, file.fileName, sheetName, rowNumber, compositeModel, matched.reason);
+      continue;
+    }
+
+    result.matchedRows += 1;
+    result.plannedParams += planParamsForMatchedRow({
+      file,
+      sheetName,
+      row,
+      rowNumber,
+      product: matched.product,
+      paramColumns,
+      existingParamKeys,
+      plannedParams,
+      result,
+    });
+  }
+
+  if (result.matchedRows === sheetStart.matchedRows) {
+    result.scannedRows = sheetStart.scannedRows;
+    result.emptyModelRows = sheetStart.emptyModelRows;
+    result.failedRows = sheetStart.failedRows;
+    result.existingParamsSkipped = sheetStart.existingParamsSkipped;
+    result.plannedParams = sheetStart.plannedParams;
+    plannedParams.splice(sheetStart.plannedParamLength);
+    matchFailures.splice(sheetStart.failureLength);
+    return false;
+  }
+
+  return true;
+}
+
+function buildSheetModelCandidates(sheetName: string): string[] {
+  const raw = sheetName.normalize("NFC").trim();
+  const candidates = new Set<string>();
+  addSheetCandidate(candidates, raw);
+
+  const beforeChinese = raw.split(/[\u3400-\u9fff]/u)[0]?.replace(/[-_\s]+$/g, "").trim();
+  if (beforeChinese) addSheetCandidate(candidates, beforeChinese);
+
+  for (const match of raw.matchAll(/\b[A-Za-z]{1,8}(?:[-_\s]?[A-Za-z0-9]{1,10}){1,3}\b/g)) {
+    addSheetCandidate(candidates, match[0]);
+  }
+
+  return [...candidates];
+}
+
+function addSheetCandidate(candidates: Set<string>, value: string) {
+  const normalized = normalizeForMatch(value).replace(/[_]+/g, "-").replace(/\s*-\s*/g, "-");
+  if (normalized.length < 3) return;
+  if (/^sheet\s*\d*$/i.test(normalized)) return;
+  candidates.add(normalized);
+}
+
+function planParamsForMatchedRow(input: {
+  file: SourceFile;
+  sheetName: string;
+  row: unknown[];
+  rowNumber: number;
+  product: LinkedProduct;
+  paramColumns: ParamColumn[];
+  existingParamKeys: Set<string>;
+  plannedParams: PlannedParam[];
+  result: FileResult;
+}): number {
+  const { file, sheetName, row, rowNumber, product, paramColumns, existingParamKeys, plannedParams, result } = input;
+  const beforeRowParamCount = plannedParams.length;
+
+  for (const column of paramColumns) {
+    const rawValue = cellToString(row[column.index]);
+    if (!isUsefulParamValue(rawValue)) continue;
+
+    const key = productParamKey(product.productId, column.paramKey);
+    if (existingParamKeys.has(key)) {
+      result.existingParamsSkipped += 1;
+      continue;
+    }
+
+    const normalized = normalizeParamValue(column.paramKey, rawValue);
+    plannedParams.push({
+      id: randomUUID(),
+      productId: product.productId,
+      productModel: product.modelNo ?? "",
+      productName: product.productName,
+      category: product.category ?? "(未分类)",
+      sourceFileId: file.id,
+      fileName: file.fileName,
+      sheetName,
+      rowNumber,
+      header: column.header,
+      paramKey: column.paramKey,
+      rawValue,
+      normalizedValue: normalized.normalizedValue,
+      unit: normalized.unit,
+    });
+    existingParamKeys.add(key);
+  }
+
+  return plannedParams.length - beforeRowParamCount;
+}
+
 function matchProduct(
   excelModelValue: string,
   products: LinkedProduct[],
+  rowContext?: RowContext,
 ): { product: LinkedProduct | null; reason: string } {
   const normalizedExcel = normalizeForMatch(excelModelValue);
   if (!normalizedExcel) return { product: null, reason: "empty normalized model" };
 
   const exactModelMatches = products.filter((product) => normalizeForMatch(product.modelNo ?? "") === normalizedExcel);
-  const exactModel = chooseLongestUnique(exactModelMatches, normalizedExcel);
+  const exactModel = chooseLongestUnique(exactModelMatches, normalizedExcel, rowContext);
   if (exactModel.product) return exactModel;
   if (exactModel.reason) return exactModel;
 
@@ -598,7 +819,7 @@ function matchProduct(
     const normalizedModel = normalizeForMatch(product.modelNo ?? "");
     return normalizedModel.length >= 2 && (normalizedExcel.includes(normalizedModel) || normalizedModel.includes(normalizedExcel));
   });
-  const containModel = chooseLongestUnique(containModelMatches, normalizedExcel);
+  const containModel = chooseLongestUnique(containModelMatches, normalizedExcel, rowContext);
   if (containModel.product) return containModel;
   if (containModel.reason) return containModel;
 
@@ -606,14 +827,18 @@ function matchProduct(
     const normalizedName = normalizeForMatch(product.productName);
     return normalizedName.length >= 2 && (normalizedExcel.includes(normalizedName) || normalizedName.includes(normalizedExcel));
   });
-  const nameMatch = chooseLongestUnique(nameMatches, normalizedExcel);
+  const nameMatch = chooseLongestUnique(nameMatches, normalizedExcel, rowContext);
   if (nameMatch.product) return nameMatch;
   if (nameMatch.reason) return nameMatch;
 
   return { product: null, reason: "no product match" };
 }
 
-function chooseLongestUnique(products: LinkedProduct[], excelValue: string): { product: LinkedProduct | null; reason: string } {
+function chooseLongestUnique(
+  products: LinkedProduct[],
+  excelValue: string,
+  rowContext?: RowContext,
+): { product: LinkedProduct | null; reason: string } {
   if (products.length === 0) return { product: null, reason: "" };
 
   const scored = products
@@ -628,7 +853,26 @@ function chooseLongestUnique(products: LinkedProduct[], excelValue: string): { p
     return { product: scored[0].product, reason: "" };
   }
 
+  const topScore = scored[0].score;
+  const tiedProducts = scored.filter((item) => item.score === topScore).map((item) => item.product);
+  const wattsMatch = chooseUniqueByWatts(tiedProducts, rowContext);
+  if (wattsMatch) return { product: wattsMatch, reason: "" };
+
   return { product: null, reason: "multiple product matches with same score" };
+}
+
+function chooseUniqueByWatts(products: LinkedProduct[], rowContext?: RowContext): LinkedProduct | null {
+  const watts = firstNumber(rowContext?.wattsValue ?? "");
+  if (!watts) return null;
+
+  const compactWatts = `${watts}w`.toLowerCase();
+  const spacedWatts = `${watts} w`.toLowerCase();
+  const matches = products.filter((product) => {
+    const haystack = normalizeForMatch(`${product.modelNo ?? ""} ${product.productName}`);
+    return haystack.replace(/\s+/g, "").includes(compactWatts) || haystack.includes(spacedWatts);
+  });
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function commonMatchScore(left: string, right: string): number {
@@ -758,7 +1002,7 @@ function buildReport(input: {
   const categoryStats = buildCategoryStats(plannedParams);
   const skippedSheets = fileResults.flatMap((file) => file.skippedSheets);
 
-  return `# V10.1 参数回填报告
+  return `# V10.2 参数回填报告
 
 模式: ${summary.mode}
 时间: ${new Date().toISOString()}
