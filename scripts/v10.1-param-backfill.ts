@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 
 const prisma = new PrismaClient();
 
-const REPORT_PATH = path.join("docs", "v10.2-backfill-report.md");
+const REPORT_PATH = getArgValue("--report") ?? path.join("docs", "v10.2-backfill-report.md");
 const BACKUP_PATH = path.join("prisma", "dev.db.bak-v10.2");
 const HEADER_SCAN_ROWS = 10;
 const MIN_HEADER_CELLS = 3;
@@ -27,6 +27,8 @@ type SourceFile = {
   fileName: string;
   relativePath: string;
   products: LinkedProduct[];
+  fileCategory: string | null;
+  fallbackProducts: LinkedProduct[];
 };
 
 type LinkedProductRow = {
@@ -82,6 +84,9 @@ type FileResult = {
   scannedRows: number;
   emptyModelRows: number;
   matchedRows: number;
+  categoryTiebreakerMatchedRows: number;
+  fallbackMatchedRows: number;
+  wattsMatchedRows: number;
   failedRows: number;
   existingParamsSkipped: number;
   plannedParams: number;
@@ -113,6 +118,9 @@ type Summary = {
   scannedRows: number;
   emptyModelRows: number;
   matchedRows: number;
+  categoryTiebreakerMatchedRows: number;
+  fallbackMatchedRows: number;
+  wattsMatchedRows: number;
   failedRows: number;
   plannedParams: number;
   existingParamsSkipped: number;
@@ -142,6 +150,11 @@ type RowContext = {
   wattsValue?: string;
   rowValues?: unknown[];
   paramColumns?: ParamColumn[];
+  preferredCategory?: string | null;
+  matchStats?: {
+    categoryTiebreaker: boolean;
+    watts: boolean;
+  };
 };
 
 const MODEL_HEADER_PATTERNS = [
@@ -324,7 +337,9 @@ async function main() {
 
   const productParamsBefore = await prisma.productParam.count();
   const sourceFiles = await loadSourceFiles();
-  const allProductIds = [...new Set(sourceFiles.flatMap((file) => file.products.map((product) => product.productId)))];
+  const allProductIds = [
+    ...new Set(sourceFiles.flatMap((file) => [...file.products, ...file.fallbackProducts].map((product) => product.productId))),
+  ];
   const existingParamKeys = await loadExistingParamKeys(allProductIds);
 
   const plannedParams: PlannedParam[] = [];
@@ -403,13 +418,32 @@ async function loadSourceFiles(): Promise<SourceFile[]> {
   `;
 
   const filesById = new Map<string, SourceFile>();
+  const allProducts = await prisma.product.findMany({
+    select: { id: true, modelNo: true, productName: true, category: true },
+  });
+  const productsByCategory = new Map<string, LinkedProduct[]>();
+  for (const product of allProducts) {
+    const category = product.category ?? "";
+    const list = productsByCategory.get(category) ?? [];
+    list.push({
+      productId: product.id,
+      modelNo: product.modelNo,
+      productName: product.productName,
+      category: product.category,
+    });
+    productsByCategory.set(category, list);
+  }
+
   for (const row of rows) {
+    const fileCategory = inferCategoryFromFile(row.relative_path, row.file_name);
     const file =
       filesById.get(row.file_id) ??
       ({
         id: row.file_id,
         fileName: row.file_name,
         relativePath: row.relative_path,
+        fileCategory,
+        fallbackProducts: fileCategory ? (productsByCategory.get(fileCategory) ?? []) : [],
         products: [],
       } satisfies SourceFile);
 
@@ -459,6 +493,9 @@ function scanFile(
     scannedRows: 0,
     emptyModelRows: 0,
     matchedRows: 0,
+    categoryTiebreakerMatchedRows: 0,
+    fallbackMatchedRows: 0,
+    wattsMatchedRows: 0,
     failedRows: 0,
     existingParamsSkipped: 0,
     plannedParams: 0,
@@ -522,6 +559,9 @@ function scanFile(
         scannedRows: result.scannedRows,
         emptyModelRows: result.emptyModelRows,
         matchedRows: result.matchedRows,
+        categoryTiebreakerMatchedRows: result.categoryTiebreakerMatchedRows,
+        fallbackMatchedRows: result.fallbackMatchedRows,
+        wattsMatchedRows: result.wattsMatchedRows,
         failedRows: result.failedRows,
         existingParamsSkipped: result.existingParamsSkipped,
         plannedParams: result.plannedParams,
@@ -540,10 +580,20 @@ function scanFile(
         }
 
         result.scannedRows += 1;
-        const rowContext: RowContext = { rowValues: row, paramColumns };
+        const rowContext: RowContext = {
+          rowValues: row,
+          paramColumns,
+          preferredCategory: file.fileCategory,
+          matchStats: { categoryTiebreaker: false, watts: false },
+        };
         const wattsCol = paramColumns.find((column) => column.paramKey === "watts");
         if (wattsCol) rowContext.wattsValue = cellToString(row[wattsCol.index]);
-        const matched = matchProduct(excelModel, file.products, rowContext);
+        let matched = matchProduct(excelModel, file.products, rowContext);
+        let usedFallback = false;
+        if (!matched.product && file.fallbackProducts.length > 0) {
+          matched = matchProduct(excelModel, file.fallbackProducts, rowContext);
+          usedFallback = Boolean(matched.product);
+        }
         if (!matched.product) {
           result.failedRows += 1;
           pushFailure(matchFailures, file.fileName, sheetName, rowNumber, excelModel, matched.reason);
@@ -551,6 +601,9 @@ function scanFile(
         }
 
         result.matchedRows += 1;
+        if (rowContext.matchStats?.categoryTiebreaker) result.categoryTiebreakerMatchedRows += 1;
+        if (rowContext.matchStats?.watts) result.wattsMatchedRows += 1;
+        if (usedFallback) result.fallbackMatchedRows += 1;
         result.plannedParams += planParamsForMatchedRow({
           file,
           sheetName,
@@ -567,6 +620,10 @@ function scanFile(
       if (result.matchedRows === sheetStart.matchedRows) {
         result.scannedRows = sheetStart.scannedRows;
         result.emptyModelRows = sheetStart.emptyModelRows;
+        result.matchedRows = sheetStart.matchedRows;
+        result.categoryTiebreakerMatchedRows = sheetStart.categoryTiebreakerMatchedRows;
+        result.fallbackMatchedRows = sheetStart.fallbackMatchedRows;
+        result.wattsMatchedRows = sheetStart.wattsMatchedRows;
         result.failedRows = sheetStart.failedRows;
         result.existingParamsSkipped = sheetStart.existingParamsSkipped;
         result.plannedParams = sheetStart.plannedParams;
@@ -686,6 +743,9 @@ function trySheetModelCandidate(input: {
     scannedRows: result.scannedRows,
     emptyModelRows: result.emptyModelRows,
     matchedRows: result.matchedRows,
+    categoryTiebreakerMatchedRows: result.categoryTiebreakerMatchedRows,
+    fallbackMatchedRows: result.fallbackMatchedRows,
+    wattsMatchedRows: result.wattsMatchedRows,
     failedRows: result.failedRows,
     existingParamsSkipped: result.existingParamsSkipped,
     plannedParams: result.plannedParams,
@@ -702,7 +762,12 @@ function trySheetModelCandidate(input: {
     const wattsValue = wattsCol ? cellToString(row[wattsCol.index]) : "";
     const wattsNumber = firstNumber(wattsValue);
     const compositeModel = wattsNumber ? `${sheetModel}-${wattsNumber}W` : sheetModel;
-    const rowContext: RowContext = { rowValues: row, paramColumns };
+    const rowContext: RowContext = {
+      rowValues: row,
+      paramColumns,
+      preferredCategory: file.fileCategory,
+      matchStats: { categoryTiebreaker: false, watts: false },
+    };
     if (wattsValue) rowContext.wattsValue = wattsValue;
 
     result.scannedRows += 1;
@@ -718,6 +783,8 @@ function trySheetModelCandidate(input: {
     }
 
     result.matchedRows += 1;
+    if (rowContext.matchStats?.categoryTiebreaker) result.categoryTiebreakerMatchedRows += 1;
+    if (rowContext.matchStats?.watts) result.wattsMatchedRows += 1;
     result.plannedParams += planParamsForMatchedRow({
       file,
       sheetName,
@@ -734,6 +801,10 @@ function trySheetModelCandidate(input: {
   if (result.matchedRows === sheetStart.matchedRows) {
     result.scannedRows = sheetStart.scannedRows;
     result.emptyModelRows = sheetStart.emptyModelRows;
+    result.matchedRows = sheetStart.matchedRows;
+    result.categoryTiebreakerMatchedRows = sheetStart.categoryTiebreakerMatchedRows;
+    result.fallbackMatchedRows = sheetStart.fallbackMatchedRows;
+    result.wattsMatchedRows = sheetStart.wattsMatchedRows;
     result.failedRows = sheetStart.failedRows;
     result.existingParamsSkipped = sheetStart.existingParamsSkipped;
     result.plannedParams = sheetStart.plannedParams;
@@ -866,9 +937,21 @@ function chooseLongestUnique(
   }
 
   const topScore = scored[0].score;
-  const tiedProducts = scored.filter((item) => item.score === topScore).map((item) => item.product);
+  let tiedProducts = scored.filter((item) => item.score === topScore).map((item) => item.product);
+  if (rowContext?.preferredCategory && tiedProducts.length > 1) {
+    const sameCategoryProducts = tiedProducts.filter((product) => product.category === rowContext.preferredCategory);
+    if (sameCategoryProducts.length === 1) {
+      if (rowContext.matchStats) rowContext.matchStats.categoryTiebreaker = true;
+      return { product: sameCategoryProducts[0], reason: "" };
+    }
+    if (sameCategoryProducts.length > 1) tiedProducts = sameCategoryProducts;
+  }
+
   const wattsMatch = chooseUniqueByWatts(tiedProducts, rowContext);
-  if (wattsMatch) return { product: wattsMatch, reason: "" };
+  if (wattsMatch) {
+    if (rowContext?.matchStats) rowContext.matchStats.watts = true;
+    return { product: wattsMatch, reason: "" };
+  }
 
   return { product: null, reason: "multiple product matches with same score" };
 }
@@ -994,6 +1077,9 @@ function buildSummary(input: {
     scannedRows: fileResults.reduce((sum, file) => sum + file.scannedRows, 0),
     emptyModelRows: fileResults.reduce((sum, file) => sum + file.emptyModelRows, 0),
     matchedRows: fileResults.reduce((sum, file) => sum + file.matchedRows, 0),
+    categoryTiebreakerMatchedRows: fileResults.reduce((sum, file) => sum + file.categoryTiebreakerMatchedRows, 0),
+    fallbackMatchedRows: fileResults.reduce((sum, file) => sum + file.fallbackMatchedRows, 0),
+    wattsMatchedRows: fileResults.reduce((sum, file) => sum + file.wattsMatchedRows, 0),
     failedRows: fileResults.reduce((sum, file) => sum + file.failedRows, 0),
     plannedParams: fileResults.reduce((sum, file) => sum + file.plannedParams, 0),
     existingParamsSkipped: fileResults.reduce((sum, file) => sum + file.existingParamsSkipped, 0),
@@ -1013,8 +1099,11 @@ function buildReport(input: {
   const paramStats = buildParamStats(plannedParams);
   const categoryStats = buildCategoryStats(plannedParams);
   const skippedSheets = fileResults.flatMap((file) => file.skippedSheets);
+  const isV107Report = REPORT_PATH.includes("v10.7");
+  const baselineRows = 9138;
+  const baselineMatched = 5914;
 
-  return `# V10.2 参数回填报告
+  return `# ${isV107Report ? "V10.7 回填匹配改进报告" : "V10.2 参数回填报告"}
 
 模式: ${summary.mode}
 时间: ${new Date().toISOString()}
@@ -1033,10 +1122,34 @@ function buildReport(input: {
 | 匹配成功行 | ${summary.matchedRows.toLocaleString()} |
 | 匹配失败行 | ${summary.failedRows.toLocaleString()} |
 | 匹配率 | ${formatPercent(summary.scannedRows > 0 ? summary.matchedRows / summary.scannedRows : 0)} |
+| 品类过滤消歧匹配行 | ${summary.categoryTiebreakerMatchedRows.toLocaleString()} |
+| 全 DB 同品类回退匹配行 | ${summary.fallbackMatchedRows.toLocaleString()} |
+| 短型号 + watts 辅助匹配行 | ${summary.wattsMatchedRows.toLocaleString()} |
 | 待插入新参数 | ${summary.plannedParams.toLocaleString()} |
 | 跳过（已存在） | ${summary.existingParamsSkipped.toLocaleString()} |
 | 实际插入 | ${summary.insertedParams.toLocaleString()} |
 | product_params 变化 | ${summary.productParamsBefore.toLocaleString()} → ${summary.productParamsAfter.toLocaleString()} |
+
+${
+  isV107Report
+    ? `## 匹配率变化
+
+| 指标 | 改进前 | 改进后 | 变化 |
+|---|---:|---:|---:|
+| 总数据行 | ${baselineRows.toLocaleString()} | ${summary.scannedRows.toLocaleString()} | ${formatSigned(summary.scannedRows - baselineRows)} |
+| 匹配成功 | ${baselineMatched.toLocaleString()} | ${summary.matchedRows.toLocaleString()} | ${formatSigned(summary.matchedRows - baselineMatched)} |
+| 匹配率 | ${formatPercent(baselineMatched / baselineRows)} | ${formatPercent(summary.scannedRows > 0 ? summary.matchedRows / summary.scannedRows : 0)} | ${formatPercent((summary.scannedRows > 0 ? summary.matchedRows / summary.scannedRows : 0) - baselineMatched / baselineRows)} |
+
+## 按改进来源统计
+
+| 改进手段 | 新增匹配行 | 新增参数 |
+|---|---:|---:|
+| 品类过滤消歧 | ${summary.categoryTiebreakerMatchedRows.toLocaleString()} | - |
+| 全 DB 同品类回退 | ${summary.fallbackMatchedRows.toLocaleString()} | - |
+| 短型号 + watts 联合 | ${summary.wattsMatchedRows.toLocaleString()} | - |
+`
+    : ""
+}
 
 ## 按 param_key 统计
 
@@ -1139,10 +1252,56 @@ function matchParamKey(normalizedHeader: string): string | null {
 
   const entries = Object.entries(HEADER_TO_PARAM).sort(([left], [right]) => right.length - left.length);
   for (const [label, paramKey] of entries) {
-    if (label.length <= 2) continue;
+    if (label.length <= 2) {
+      if (normalizedHeader === label) return paramKey;
+      continue;
+    }
     if (containsHeaderLabel(normalizedHeader, label)) return paramKey;
   }
 
+  return null;
+}
+
+function inferCategoryFromFile(filePath: string, fileName: string): string | null {
+  const combined = `${filePath} ${fileName}`.normalize("NFC");
+  const categoryKeywords: Array<[string, string]> = [
+    ["太阳能壁灯", "太阳能壁灯"],
+    ["太阳能草坪灯", "太阳能"],
+    ["太阳能庭院灯", "太阳能"],
+    ["太阳能", "太阳能"],
+    ["LED橱柜灯", "橱柜灯"],
+    ["橱柜灯", "橱柜灯"],
+    ["市电壁灯", "壁灯"],
+    ["壁灯", "壁灯"],
+    ["面板灯", "面板灯"],
+    ["筒灯", "筒灯"],
+    ["投光灯", "投光灯"],
+    ["泛光灯", "投光灯"],
+    ["线条灯", "线条灯"],
+    ["办公灯", "线条灯"],
+    ["三防灯", "三防灯"],
+    ["灯丝灯", "灯丝灯"],
+    ["灯带", "灯带"],
+    ["轨道灯", "轨道灯"],
+    ["磁吸灯", "磁吸灯"],
+    ["净化灯", "净化灯"],
+    ["天花灯", "天花灯"],
+    ["工矿灯", "Highbay"],
+    ["Highbay", "Highbay"],
+    ["球泡", "球泡"],
+    ["蜡烛灯", "灯丝灯"],
+    ["灯管", "灯管"],
+    ["皮线灯", "皮线灯"],
+    ["路灯", "路灯"],
+    ["庭院灯", "庭院灯"],
+    ["工作灯", "工作灯"],
+    ["风扇灯", "风扇灯"],
+    ["G4G9", "G4G9"],
+  ];
+
+  for (const [keyword, category] of categoryKeywords) {
+    if (combined.includes(keyword)) return category;
+  }
   return null;
 }
 
@@ -1205,6 +1364,16 @@ function productParamKey(productId: string, paramKey: string): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
+}
+
+function formatSigned(value: number): string {
+  return value > 0 ? `+${value.toLocaleString()}` : value.toLocaleString();
+}
+
+function getArgValue(name: string): string | null {
+  const prefix = `${name}=`;
+  const matched = process.argv.find((arg) => arg.startsWith(prefix));
+  return matched ? matched.slice(prefix.length) : null;
 }
 
 function escapeMd(value: string): string {
