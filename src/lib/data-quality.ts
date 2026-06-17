@@ -24,6 +24,14 @@ export type CategoryParamCoverage = {
   productCount: number;
 };
 
+export type CategoryCompletion = {
+  category: string;
+  totalProducts: number;
+  completeProducts: number;
+  coreParamCount: number;
+  paramBreakdown: Record<string, number>;
+};
+
 export type DataQualitySummary = {
   categories: CategoryQuality[];
   totals: CategoryQuality;
@@ -71,6 +79,39 @@ type DataQualityRows = {
   sizeRows: SizeQualityRow[];
   paramCoverageRows?: ParamKeyCoverageRow[];
   categoryParamRows?: CategoryParamCoverageRow[];
+};
+
+const CATEGORY_CORE_PARAMS: Record<string, string[]> = {
+  筒灯: ["voltage", "cct", "cri", "pf", "driver_type"],
+  面板灯: ["voltage", "cct", "cri", "pf", "driver_type", "material"],
+  磁吸灯: ["voltage", "cct", "cri"],
+  吸顶灯: ["voltage", "cct", "cri", "pf", "driver_type"],
+  灯丝灯: ["voltage", "cct", "cri", "pf", "base"],
+  风扇灯: ["voltage", "cct", "cri"],
+  球泡: ["voltage", "cct", "cri", "pf", "base"],
+  壁灯: ["voltage", "cct", "cri", "driver_type", "material"],
+  净化灯: ["voltage", "cct", "cri", "pf", "driver_type"],
+  橱柜灯: ["voltage", "cct", "cri"],
+  镜前灯: ["voltage", "cct", "cri", "driver_type"],
+  轨道灯: ["voltage", "cct", "cri", "pf", "beam_angle"],
+  防潮灯: ["voltage", "cct", "cri", "ip", "pf", "driver_type"],
+  台灯: ["voltage", "cct", "cri"],
+  G4G9: ["voltage", "cct", "cri", "base"],
+  灯管: ["voltage", "cct", "cri", "pf"],
+  线条灯: ["voltage", "cct", "cri", "ip"],
+  投光灯: ["voltage", "cct", "cri", "ip", "pf", "beam_angle", "material"],
+  三防灯: ["voltage", "cct", "cri", "ip", "pf"],
+  太阳能壁灯: ["cct", "ip", "material"],
+  太阳能: ["cct", "ip", "material"],
+  路灯: ["voltage", "cct", "cri", "ip", "pf", "beam_angle"],
+  "地埋灯/地插灯": ["voltage", "cct", "cri", "ip", "beam_angle"],
+  工作灯: ["voltage", "cct", "cri", "ip"],
+  庭院灯: ["voltage", "cct", "ip", "material"],
+  Highbay: ["voltage", "cct", "cri", "ip", "pf", "beam_angle"],
+  充电灯: ["cct", "ip", "material"],
+  应急灯: ["voltage", "cct"],
+  灯带: ["voltage", "cct", "cri", "ip"],
+  皮线灯: ["voltage", "ip"],
 };
 
 export async function getDataQuality(): Promise<DataQualitySummary> {
@@ -144,6 +185,80 @@ export async function getDataQuality(): Promise<DataQualitySummary> {
   ]);
 
   return buildDataQualitySummary({ productRows, offerRows, paramRows, sizeRows, paramCoverageRows, categoryParamRows });
+}
+
+export async function getCategoryCompletionData(): Promise<CategoryCompletion[]> {
+  const completionRows: CategoryCompletion[] = [];
+
+  for (const [category, coreParams] of Object.entries(CATEGORY_CORE_PARAMS)) {
+    const placeholders = coreParams.map(() => "?").join(", ");
+    const [counts, breakdownRows] = await Promise.all([
+      prisma.$queryRawUnsafe<Array<{ total_products: DbCount; complete_products: DbCount }>>(
+        `
+          SELECT
+            COUNT(*) as total_products,
+            SUM(CASE WHEN core_param_count = ? THEN 1 ELSE 0 END) as complete_products
+          FROM (
+            SELECT
+              p.id,
+              (
+                SELECT COUNT(DISTINCT pp.param_key)
+                FROM product_params pp
+                WHERE pp.product_id = p.id
+                  AND pp.param_key IN (${placeholders})
+                  AND pp.normalized_value IS NOT NULL
+                  AND TRIM(pp.normalized_value) != ''
+              ) as core_param_count
+            FROM products p
+            WHERE COALESCE(NULLIF(TRIM(p.category), ''), '未分类') = ?
+          ) scoped_products
+        `,
+        coreParams.length,
+        ...coreParams,
+        category,
+      ),
+      prisma.$queryRawUnsafe<Array<{ param_key: string; product_count: DbCount }>>(
+        `
+          SELECT
+            pp.param_key,
+            COUNT(DISTINCT pp.product_id) as product_count
+          FROM product_params pp
+          JOIN products p ON p.id = pp.product_id
+          WHERE COALESCE(NULLIF(TRIM(p.category), ''), '未分类') = ?
+            AND pp.param_key IN (${placeholders})
+            AND pp.normalized_value IS NOT NULL
+            AND TRIM(pp.normalized_value) != ''
+          GROUP BY pp.param_key
+        `,
+        category,
+        ...coreParams,
+      ),
+    ]);
+
+    const totalProducts = toNumber(counts[0]?.total_products);
+    if (totalProducts <= 0) {
+      continue;
+    }
+
+    const paramBreakdown = Object.fromEntries(coreParams.map((paramKey) => [paramKey, 0]));
+    for (const row of breakdownRows) {
+      paramBreakdown[row.param_key] = toNumber(row.product_count);
+    }
+
+    completionRows.push({
+      category,
+      totalProducts,
+      completeProducts: toNumber(counts[0]?.complete_products),
+      coreParamCount: coreParams.length,
+      paramBreakdown,
+    });
+  }
+
+  return completionRows.sort((left, right) => {
+    const leftRate = left.totalProducts > 0 ? left.completeProducts / left.totalProducts : 0;
+    const rightRate = right.totalProducts > 0 ? right.completeProducts / right.totalProducts : 0;
+    return rightRate - leftRate || right.totalProducts - left.totalProducts || left.category.localeCompare(right.category);
+  });
 }
 
 export function buildDataQualitySummary(rows: DataQualityRows): DataQualitySummary {

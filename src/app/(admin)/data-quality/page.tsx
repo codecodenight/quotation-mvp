@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import {
+  getCategoryCompletionData,
   getDataQuality,
+  type CategoryCompletion,
   type CategoryParamCoverage,
   type CategoryQuality,
   type ParamKeyCoverage,
@@ -26,7 +28,7 @@ const PARAM_DISPLAY_NAMES: Record<string, string> = {
 const MATRIX_PARAM_KEYS = ["watts", "voltage", "cct", "cri", "ip", "pf"] as const;
 
 export default async function DataQualityPage() {
-  const summary = await getDataQuality();
+  const [summary, completionData] = await Promise.all([getDataQuality(), getCategoryCompletionData()]);
   const { categories, totals, paramCoverage, categoryParamMatrix } = summary;
 
   return (
@@ -72,6 +74,8 @@ export default async function DataQualityPage() {
         <CategoryParamHeatmap categories={categories} matrix={categoryParamMatrix} />
       </section>
 
+      <CoreParamCompletion categories={completionData} />
+
       <section className="rounded-md border border-line bg-paper shadow-panel">
         <div className="border-b border-line px-4 py-4">
           <h2 className="text-lg font-semibold text-ink">品类明细</h2>
@@ -107,6 +111,103 @@ export default async function DataQualityPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function CoreParamCompletion({ categories }: { categories: CategoryCompletion[] }) {
+  const totalProducts = categories.reduce((sum, category) => sum + category.totalProducts, 0);
+  const totalComplete = categories.reduce((sum, category) => sum + category.completeProducts, 0);
+  const completionRate = rate(totalComplete, totalProducts);
+
+  return (
+    <section className="mb-5 rounded-md border border-line bg-paper shadow-panel">
+      <div className="border-b border-line px-4 py-4">
+        <h2 className="text-lg font-semibold text-ink">核心参数完成率</h2>
+        <p className="mt-1 text-xs text-stone-500">每个品类的核心规格参数全部有值才算完成，已排除功率和尺寸。</p>
+      </div>
+
+      <div className="border-b border-line p-4">
+        <div className="grid gap-3 md:grid-cols-[9rem_minmax(0,1fr)_12rem] md:items-center">
+          <div className="text-sm font-semibold text-ink">全局完成率</div>
+          <div className="h-4 overflow-hidden rounded-full bg-stone-200">
+            <div className="h-full rounded-full bg-leaf" style={{ width: `${clampPercent(completionRate * 100)}%` }} />
+          </div>
+          <div className="text-sm md:text-right">
+            <span className={`font-semibold ${completionTextClass(completionRate)}`}>{formatPrecisePercent(completionRate)}</span>
+            <span className="ml-2 text-xs text-stone-500">
+              ({formatInteger(totalComplete)} / {formatInteger(totalProducts)})
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-line">
+        {categories.map((category) => (
+          <CoreParamCompletionRow key={category.category} category={category} />
+        ))}
+        {categories.length === 0 ? <div className="py-8 text-center text-sm text-stone-500">暂无核心参数完成率数据。</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function CoreParamCompletionRow({ category }: { category: CategoryCompletion }) {
+  const completionRate = rate(category.completeProducts, category.totalProducts);
+  const breakdownEntries = Object.entries(category.paramBreakdown);
+
+  return (
+    <details className="group">
+      <summary className="grid cursor-pointer list-none gap-3 px-4 py-3 hover:bg-stone-50 md:grid-cols-[minmax(8rem,1fr)_5rem_5rem_7rem_minmax(10rem,1.1fr)] md:items-center">
+        <div className="font-semibold text-ink">
+          <Link
+            href={`/products?category=${encodeURIComponent(category.category)}`}
+            className="underline-offset-2 hover:text-leaf hover:underline"
+          >
+            {category.category}
+          </Link>
+          <span className="ml-2 text-xs font-medium text-stone-500 group-open:hidden">展开</span>
+          <span className="ml-2 hidden text-xs font-medium text-stone-500 group-open:inline">收起</span>
+        </div>
+        <div className="text-sm text-stone-600 md:text-right">总数 {formatInteger(category.totalProducts)}</div>
+        <div className="text-sm text-stone-600 md:text-right">完成 {formatInteger(category.completeProducts)}</div>
+        <div className={`text-sm font-semibold md:text-right ${completionTextClass(completionRate)}`}>
+          {formatPrecisePercent(completionRate)}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-stone-200">
+            <div className="h-full rounded-full bg-leaf" style={{ width: `${clampPercent(completionRate * 100)}%` }} />
+          </div>
+          <span className={`rounded border px-2 py-1 text-xs font-semibold ${completionBgClass(completionRate)}`}>
+            {completionStatusLabel(completionRate)}
+          </span>
+        </div>
+      </summary>
+
+      <div className="border-t border-line bg-stone-50 px-4 py-4">
+        <div className="mb-3 text-xs text-stone-500">
+          核心参数数：{category.coreParamCount}。下方显示每个核心参数覆盖了多少个产品。
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {breakdownEntries.map(([paramKey, productCount]) => {
+            const paramRate = rate(productCount, category.totalProducts);
+            return (
+              <div key={`${category.category}-${paramKey}`} className="grid gap-2 sm:grid-cols-[7.5rem_minmax(0,1fr)_8.5rem] sm:items-center">
+                <div className="text-sm font-semibold text-ink">{PARAM_DISPLAY_NAMES[paramKey] ?? paramKey}</div>
+                <div className="h-3 overflow-hidden rounded-full bg-stone-200">
+                  <div className="h-full rounded-full bg-leaf" style={{ width: `${clampPercent(paramRate * 100)}%` }} />
+                </div>
+                <div className="text-sm sm:text-right">
+                  <span className={`font-semibold ${completionTextClass(paramRate)}`}>{formatPrecisePercent(paramRate)}</span>
+                  <span className="ml-2 text-xs text-stone-500">
+                    ({formatInteger(productCount)} / {formatInteger(category.totalProducts)})
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -331,6 +432,36 @@ function coverageClass(coverageRate: number): string {
     return "text-amber-700";
   }
   return "text-red-700";
+}
+
+function completionBgClass(coverageRate: number): string {
+  if (coverageRate >= 0.8) {
+    return "border-green-200 bg-green-50 text-green-700";
+  }
+  if (coverageRate >= 0.4) {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-red-200 bg-red-50 text-red-700";
+}
+
+function completionTextClass(coverageRate: number): string {
+  if (coverageRate >= 0.8) {
+    return "text-green-700";
+  }
+  if (coverageRate >= 0.4) {
+    return "text-amber-700";
+  }
+  return "text-red-700";
+}
+
+function completionStatusLabel(coverageRate: number): string {
+  if (coverageRate >= 0.8) {
+    return "达标";
+  }
+  if (coverageRate >= 0.4) {
+    return "关注";
+  }
+  return "偏低";
 }
 
 function formatPercent(coverageRate: number): string {
