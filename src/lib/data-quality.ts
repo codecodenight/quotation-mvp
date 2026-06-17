@@ -12,9 +12,23 @@ export type CategoryQuality = {
   ctnOfferCount: number;
 };
 
+export type ParamKeyCoverage = {
+  paramKey: string;
+  productCount: number;
+  percentage: number;
+};
+
+export type CategoryParamCoverage = {
+  category: string;
+  paramKey: string;
+  productCount: number;
+};
+
 export type DataQualitySummary = {
   categories: CategoryQuality[];
   totals: CategoryQuality;
+  paramCoverage: ParamKeyCoverage[];
+  categoryParamMatrix: CategoryParamCoverage[];
 };
 
 export type ProductQualityRow = {
@@ -39,15 +53,28 @@ export type SizeQualityRow = {
   size_count: DbCount;
 };
 
+export type ParamKeyCoverageRow = {
+  param_key: string;
+  product_count: DbCount;
+};
+
+export type CategoryParamCoverageRow = {
+  category: string | null;
+  param_key: string;
+  product_count: DbCount;
+};
+
 type DataQualityRows = {
   productRows: ProductQualityRow[];
   offerRows: OfferQualityRow[];
   paramRows: ParamQualityRow[];
   sizeRows: SizeQualityRow[];
+  paramCoverageRows?: ParamKeyCoverageRow[];
+  categoryParamRows?: CategoryParamCoverageRow[];
 };
 
 export async function getDataQuality(): Promise<DataQualitySummary> {
-  const [productRows, offerRows, paramRows, sizeRows] = await Promise.all([
+  const [productRows, offerRows, paramRows, sizeRows, paramCoverageRows, categoryParamRows] = await Promise.all([
     prisma.$queryRaw<ProductQualityRow[]>`
       SELECT
         COALESCE(category, '未分类') as category,
@@ -89,9 +116,34 @@ export async function getDataQuality(): Promise<DataQualitySummary> {
          )
       GROUP BY p.category
     `,
+    prisma.$queryRawUnsafe<ParamKeyCoverageRow[]>(`
+      SELECT
+        pp.param_key,
+        COUNT(DISTINCT pp.product_id) as product_count
+      FROM product_params pp
+      WHERE pp.param_key IN (
+        'watts','voltage','cct','cri','ip','pf',
+        'driver_type','material','luminous_efficacy','base','size_display'
+      )
+      GROUP BY pp.param_key
+      ORDER BY product_count DESC
+    `),
+    prisma.$queryRawUnsafe<CategoryParamCoverageRow[]>(`
+      SELECT
+        COALESCE(p.category, '未分类') as category,
+        pp.param_key,
+        COUNT(DISTINCT pp.product_id) as product_count
+      FROM product_params pp
+      JOIN products p ON pp.product_id = p.id
+      WHERE pp.param_key IN (
+        'watts','voltage','cct','cri','ip','pf',
+        'driver_type','material','luminous_efficacy'
+      )
+      GROUP BY p.category, pp.param_key
+    `),
   ]);
 
-  return buildDataQualitySummary({ productRows, offerRows, paramRows, sizeRows });
+  return buildDataQualitySummary({ productRows, offerRows, paramRows, sizeRows, paramCoverageRows, categoryParamRows });
 }
 
 export function buildDataQualitySummary(rows: DataQualityRows): DataQualitySummary {
@@ -123,20 +175,40 @@ export function buildDataQualitySummary(rows: DataQualityRows): DataQualitySumma
     (left, right) => right.productCount - left.productCount || left.category.localeCompare(right.category),
   );
 
+  const totals = categories.reduce(
+    (totals, category) => ({
+      category: "全部",
+      productCount: totals.productCount + category.productCount,
+      offerCount: totals.offerCount + category.offerCount,
+      imageCount: totals.imageCount + category.imageCount,
+      paramProductCount: totals.paramProductCount + category.paramProductCount,
+      sizeProductCount: totals.sizeProductCount + category.sizeProductCount,
+      ctnOfferCount: totals.ctnOfferCount + category.ctnOfferCount,
+    }),
+    createEmptyCategory("全部"),
+  );
+
+  const totalProducts = totals.productCount;
+  const paramCoverage = (rows.paramCoverageRows ?? []).map((row) => {
+    const productCount = toNumber(row.product_count);
+    return {
+      paramKey: row.param_key,
+      productCount,
+      percentage: totalProducts > 0 ? (productCount / totalProducts) * 100 : 0,
+    };
+  });
+
+  const categoryParamMatrix = (rows.categoryParamRows ?? []).map((row) => ({
+    category: row.category?.trim() || "未分类",
+    paramKey: row.param_key,
+    productCount: toNumber(row.product_count),
+  }));
+
   return {
     categories,
-    totals: categories.reduce(
-      (totals, category) => ({
-        category: "全部",
-        productCount: totals.productCount + category.productCount,
-        offerCount: totals.offerCount + category.offerCount,
-        imageCount: totals.imageCount + category.imageCount,
-        paramProductCount: totals.paramProductCount + category.paramProductCount,
-        sizeProductCount: totals.sizeProductCount + category.sizeProductCount,
-        ctnOfferCount: totals.ctnOfferCount + category.ctnOfferCount,
-      }),
-      createEmptyCategory("全部"),
-    ),
+    totals,
+    paramCoverage,
+    categoryParamMatrix,
   };
 }
 
