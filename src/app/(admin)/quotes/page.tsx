@@ -208,25 +208,11 @@ function buildProductWhere(filters: QuoteFilters, wattsProductIds: string[] | nu
   }
 
   if (filters.ip) {
-    and.push({
-      params: {
-        some: {
-          paramKey: "ip",
-          normalizedValue: filters.ip,
-        },
-      },
-    });
+    and.push(buildParamFilter("ip", filters.ip));
   }
 
   if (filters.cct) {
-    and.push({
-      params: {
-        some: {
-          paramKey: "cct",
-          normalizedValue: filters.cct,
-        },
-      },
-    });
+    and.push(buildParamFilter("cct", filters.cct));
   }
 
   if (hasWattsFilter(filters)) {
@@ -234,6 +220,29 @@ function buildProductWhere(filters: QuoteFilters, wattsProductIds: string[] | nu
   }
 
   return and.length > 0 ? { AND: and } : {};
+}
+
+function buildParamFilter(paramKey: string, filterValue: string): Prisma.ProductWhereInput {
+  return {
+    OR: [
+      {
+        params: {
+          some: {
+            paramKey,
+            normalizedValue: filterValue,
+          },
+        },
+      },
+      {
+        params: {
+          none: {
+            paramKey,
+            normalizedValue: { not: null },
+          },
+        },
+      },
+    ],
+  };
 }
 
 function hasWattsFilter(filters: QuoteFilters): boolean {
