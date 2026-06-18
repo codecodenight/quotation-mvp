@@ -1,4 +1,7 @@
-import OpenAI from "openai";
+import type {
+  ChatCompletion,
+  ChatCompletionCreateParamsNonStreaming,
+} from "openai/resources/chat/completions";
 
 export const DEEPSEEK_MODEL = "deepseek-v4-flash";
 
@@ -18,15 +21,42 @@ export const CHAT_SYSTEM_PROMPT = `你是一个照明产品报价助手。用户
 5. 回复简洁，不要重复工具已返回的结构化数据，只补充工具未覆盖的分析或建议。
 6. 不能修改源文件，不能承诺数据库里不存在的信息。`;
 
-export function getDeepSeekClient(): OpenAI {
+export type DeepSeekClient = {
+  chat: {
+    completions: {
+      create(input: ChatCompletionCreateParamsNonStreaming): Promise<ChatCompletion>;
+    };
+  };
+};
+
+export function getDeepSeekClient(): DeepSeekClient {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("DeepSeek API Key 未配置。请在 .env.local 里设置 DEEPSEEK_API_KEY。");
   }
 
-  return new OpenAI({
-    apiKey,
-    baseURL: "https://api.deepseek.com/v1",
-    timeout: 45_000,
-  });
+  return {
+    chat: {
+      completions: {
+        async create(input) {
+          const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(input),
+            signal: AbortSignal.timeout(45_000),
+          });
+
+          if (!response.ok) {
+            const detail = await response.text();
+            throw new Error(`DeepSeek 请求失败：${response.status} ${detail.slice(0, 300)}`);
+          }
+
+          return (await response.json()) as ChatCompletion;
+        },
+      },
+    },
+  };
 }
