@@ -3,45 +3,12 @@ import path from "node:path";
 
 import { PrismaClient } from "@prisma/client";
 
-import { escapeMd } from "./v11-shared";
+import { CATEGORY_CORE_PARAMS, escapeMd } from "./v11-shared";
 
 const prisma = new PrismaClient();
 
 const REPORT_PATH = path.join("docs", "v13.7-core-param-definition-audit.md");
 const LOW_COVERAGE_THRESHOLD = 0.3;
-
-const CATEGORY_CORE_PARAMS: Record<string, string[]> = {
-  筒灯: ["voltage", "cct", "cri", "pf", "driver_type"],
-  面板灯: ["voltage", "cct", "cri", "pf", "driver_type", "material"],
-  磁吸灯: ["voltage", "cct", "cri"],
-  吸顶灯: ["voltage", "cct", "cri", "pf", "driver_type"],
-  灯丝灯: ["voltage", "cct", "cri", "pf", "base"],
-  风扇灯: ["voltage", "cct", "cri"],
-  球泡: ["voltage", "cct", "cri", "pf", "base"],
-  壁灯: ["voltage", "cct", "cri", "driver_type", "material"],
-  净化灯: ["voltage", "cct", "cri", "pf", "driver_type"],
-  橱柜灯: ["voltage", "cct", "cri"],
-  镜前灯: ["voltage", "cct", "cri", "driver_type"],
-  轨道灯: ["voltage", "cct", "cri", "pf", "beam_angle"],
-  防潮灯: ["voltage", "cct", "cri", "ip", "pf", "driver_type"],
-  台灯: ["voltage", "cct", "cri"],
-  G4G9: ["voltage", "cct", "cri", "base"],
-  灯管: ["voltage", "cct", "cri", "pf"],
-  线条灯: ["voltage", "cct", "cri", "ip"],
-  投光灯: ["voltage", "cct", "cri", "ip", "pf", "beam_angle", "material"],
-  三防灯: ["voltage", "cct", "cri", "ip", "pf"],
-  太阳能壁灯: ["cct", "ip", "material"],
-  太阳能: ["cct", "ip", "material"],
-  路灯: ["voltage", "cct", "cri", "ip", "pf", "beam_angle"],
-  "地埋灯/地插灯": ["voltage", "cct", "cri", "ip", "beam_angle"],
-  工作灯: ["voltage", "cct", "cri", "ip"],
-  庭院灯: ["voltage", "cct", "ip", "material"],
-  Highbay: ["voltage", "cct", "cri", "ip", "pf", "beam_angle"],
-  充电灯: ["cct", "ip", "material"],
-  应急灯: ["voltage", "cct"],
-  灯带: ["voltage", "cct", "cri", "ip"],
-  皮线灯: ["voltage", "ip"],
-};
 
 type ProductRow = {
   id: string;
