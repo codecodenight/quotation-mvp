@@ -1,7 +1,15 @@
 import type { Prisma } from "@prisma/client";
 
 import { getHistoricalQuotesByProductIds, type HistoricalCustomerQuote } from "@/lib/customer-quote-reference";
-import { getCategoryOptions, getCctOptions, getIpOptions, getProductIdsByWattsRange, parseOptionalNonNegativeDecimal } from "@/lib/product-filters";
+import {
+  getCategoryOptions,
+  getCctOptions,
+  getIpOptions,
+  getMaterialOptions,
+  getProductIdsByWattsRange,
+  getVoltageOptions,
+  parseOptionalNonNegativeDecimal,
+} from "@/lib/product-filters";
 import { prisma } from "@/lib/prisma";
 import { buildQuoteSearchWhere, serializeQuoteSearchResult } from "@/lib/quote-history";
 import { QuotesClient, type QuoteFilters, type QuoteHistoryRow, type QuoteProductOption } from "./quotes-client";
@@ -55,9 +63,16 @@ type QuotesPageProps = {
     maxWatts?: string;
     ip?: string;
     cct?: string;
+    voltage?: string;
+    material?: string;
+    sort?: string;
     error?: string;
   }>;
 };
+
+const MAX_PRODUCTS_FOR_SORTING = 200;
+const PRODUCT_RESULT_LIMIT = 50;
+const MAX_SORTABLE_PRICE = 10_000;
 
 export default async function QuotesPage({ searchParams }: QuotesPageProps) {
   const params = await searchParams;
@@ -69,6 +84,9 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
     maxWatts: params.maxWatts?.trim() ?? "",
     ip: params.ip?.trim() ?? "",
     cct: params.cct?.trim() ?? "",
+    voltage: params.voltage?.trim() ?? "",
+    material: params.material?.trim() ?? "",
+    sort: params.sort?.trim() ?? "",
     error: params.error?.trim() ?? "",
   };
   const shouldLoadProducts = [
@@ -79,13 +97,18 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
     filters.maxWatts,
     filters.ip,
     filters.cct,
+    filters.voltage,
+    filters.material,
+    filters.sort,
   ].some((value) => value.length > 0);
 
-  const [wattsProductIds, categories, ipOptions, cctOptions, quotes] = await Promise.all([
+  const [wattsProductIds, categories, ipOptions, cctOptions, voltageOptions, materialOptions, quotes] = await Promise.all([
     getProductIdsByWattsRange(filters.minWatts, filters.maxWatts),
     getCategoryOptions(),
     getIpOptions(),
     getCctOptions(),
+    getVoltageOptions(),
+    getMaterialOptions(),
     prisma.quote.findMany({
       include: {
         _count: {
@@ -130,21 +153,24 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
             orderBy: { paramKey: "asc" },
           },
         },
-        orderBy: [{ productName: "asc" }],
-        take: 50,
+        orderBy: getProductOrderBy(filters.sort),
+        take: shouldSortInMemory(filters.sort) ? MAX_PRODUCTS_FOR_SORTING : PRODUCT_RESULT_LIMIT,
       })
     : [];
-  const historicalQuotesByProductId = await getHistoricalQuotesByProductIds(products.map((product) => product.id));
+  const sortedProducts = sortProducts(products, filters.sort).slice(0, PRODUCT_RESULT_LIMIT);
+  const historicalQuotesByProductId = await getHistoricalQuotesByProductIds(sortedProducts.map((product) => product.id));
 
   return (
     <QuotesClient
       filters={filters}
       shouldLoadProducts={shouldLoadProducts}
-      products={products.map((product) => serializeProduct(product, historicalQuotesByProductId.get(product.id) ?? []))}
+      products={sortedProducts.map((product) => serializeProduct(product, historicalQuotesByProductId.get(product.id) ?? []))}
       quotes={quotes.map(serializeQuote)}
       categories={categories}
       ipOptions={ipOptions}
       cctOptions={cctOptions}
+      voltageOptions={voltageOptions}
+      materialOptions={materialOptions}
     />
   );
 }
@@ -215,6 +241,14 @@ function buildProductWhere(filters: QuoteFilters, wattsProductIds: string[] | nu
     and.push(buildParamFilter("cct", filters.cct));
   }
 
+  if (filters.voltage) {
+    and.push(buildParamFilter("voltage", filters.voltage));
+  }
+
+  if (filters.material) {
+    and.push(buildParamFilter("material", filters.material));
+  }
+
   if (hasWattsFilter(filters)) {
     and.push({ id: { in: wattsProductIds ?? [] } });
   }
@@ -250,4 +284,56 @@ function hasWattsFilter(filters: QuoteFilters): boolean {
     parseOptionalNonNegativeDecimal(filters.minWatts) !== null ||
     parseOptionalNonNegativeDecimal(filters.maxWatts) !== null
   );
+}
+
+function getProductOrderBy(sort: string): Prisma.ProductOrderByWithRelationInput[] | undefined {
+  switch (sort) {
+    case "newest":
+      return [{ createdAt: "desc" }, { productName: "asc" }];
+    case "name":
+    case "":
+    case "default":
+      return [{ productName: "asc" }];
+    default:
+      return [{ productName: "asc" }];
+  }
+}
+
+function shouldSortInMemory(sort: string): boolean {
+  return sort === "price-asc" || sort === "price-desc";
+}
+
+function sortProducts(products: QuoteProductResult[], sort: string): QuoteProductResult[] {
+  switch (sort) {
+    case "price-asc":
+      return [...products].sort((left, right) => compareByOfferPrice(left, right, "asc"));
+    case "price-desc":
+      return [...products].sort((left, right) => compareByOfferPrice(left, right, "desc"));
+    case "newest":
+    case "name":
+    case "":
+    case "default":
+    default:
+      return products;
+  }
+}
+
+function compareByOfferPrice(left: QuoteProductResult, right: QuoteProductResult, direction: "asc" | "desc"): number {
+  const leftPrice = minSortableOfferPrice(left);
+  const rightPrice = minSortableOfferPrice(right);
+  const leftMissing = !Number.isFinite(leftPrice);
+  const rightMissing = !Number.isFinite(rightPrice);
+  if (leftMissing && rightMissing) return left.productName.localeCompare(right.productName);
+  if (leftMissing) return 1;
+  if (rightMissing) return -1;
+  return direction === "asc"
+    ? leftPrice - rightPrice || left.productName.localeCompare(right.productName)
+    : rightPrice - leftPrice || left.productName.localeCompare(right.productName);
+}
+
+function minSortableOfferPrice(product: QuoteProductResult): number {
+  const prices = product.supplierOffers
+    .map((offer) => Number(offer.purchasePrice.toString()))
+    .filter((price) => Number.isFinite(price) && price > 0 && price <= MAX_SORTABLE_PRICE);
+  return prices.length > 0 ? Math.min(...prices) : Number.POSITIVE_INFINITY;
 }

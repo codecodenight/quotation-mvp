@@ -37,6 +37,14 @@ export async function getCctOptions(): Promise<ProductFilterOption[]> {
   return getParamOptions("cct");
 }
 
+export async function getVoltageOptions(): Promise<ProductFilterOption[]> {
+  return getParamOptions("voltage");
+}
+
+export async function getMaterialOptions(): Promise<ProductFilterOption[]> {
+  return getParamOptions("material");
+}
+
 export async function getProductIdsByWattsRange(
   minWatts: string,
   maxWatts: string,

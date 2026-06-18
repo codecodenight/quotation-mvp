@@ -38,6 +38,9 @@ export type QuoteFilters = {
   maxWatts: string;
   ip: string;
   cct: string;
+  voltage: string;
+  material: string;
+  sort: string;
   error: string;
 };
 
@@ -49,6 +52,8 @@ type QuotesClientProps = {
   categories: { category: string; count: number }[];
   ipOptions: { value: string; count: number }[];
   cctOptions: { value: string; count: number }[];
+  voltageOptions: { value: string; count: number }[];
+  materialOptions: { value: string; count: number }[];
 };
 
 const inputClass =
@@ -88,6 +93,8 @@ export function QuotesClient({
   categories,
   ipOptions,
   cctOptions,
+  voltageOptions,
+  materialOptions,
 }: QuotesClientProps) {
   const [mode, setMode] = useState<"editing" | "previewing">("editing");
   const [preview, setPreview] = useState<QuotePreviewData | null>(null);
@@ -506,7 +513,7 @@ export function QuotesClient({
               </button>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
             <Field label="最小功率">
               <input name="minWatts" defaultValue={filters.minWatts} placeholder="10" className={inputClass} />
             </Field>
@@ -531,6 +538,35 @@ export function QuotesClient({
                     {option.value}K ({option.count})
                   </option>
                 ))}
+              </select>
+            </Field>
+            <Field label="电压">
+              <select name="voltage" defaultValue={filters.voltage} className={selectClass}>
+                <option value="">不限</option>
+                {voltageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {formatVoltageOption(option.value)} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="材质">
+              <select name="material" defaultValue={filters.material} className={selectClass}>
+                <option value="">不限</option>
+                {materialOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="排序">
+              <select name="sort" defaultValue={filters.sort} className={selectClass}>
+                <option value="">默认</option>
+                <option value="price-asc">价格 ↑</option>
+                <option value="price-desc">价格 ↓</option>
+                <option value="newest">最新</option>
+                <option value="name">名称</option>
               </select>
             </Field>
           </div>
@@ -1782,6 +1818,10 @@ function withSizeParamSignal(product: QuoteSelectionProduct): QuoteSelectionProd
       product.displayParams?.some((param) => SIZE_PARAM_KEYS.has(param.paramKey) && Boolean(param.normalizedValue?.trim())) ??
       false,
   };
+}
+
+function formatVoltageOption(value: string): string {
+  return /v$/i.test(value.trim()) ? value : `${value}V`;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
