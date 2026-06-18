@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import type { PrismaClient } from "@prisma/client";
+
 export const HEADER_SCAN_ROWS = 10;
 export const MIN_HEADER_CELLS = 3;
 export const INSERT_BATCH_SIZE = 500;
@@ -683,6 +685,14 @@ export const CATEGORY_CORE_PARAMS: Record<string, string[]> = {
   灯带: ["voltage", "cct", "cri", "ip"],
   皮线灯: ["voltage"],
 };
+
+export async function loadAccessoryProductIds(prisma: PrismaClient): Promise<Set<string>> {
+  const rows = await prisma.productParam.findMany({
+    where: { paramKey: "product_role", normalizedValue: "accessory" },
+    select: { productId: true },
+  });
+  return new Set(rows.map((row) => row.productId));
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
