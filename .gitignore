@@ -5,6 +5,7 @@ prisma/dev.db.bak-*
 backups/
 data/images/
 data/deepseek-cache/
+data/deepseek-cache-v16/
 sample-data/
 sample data/
 *.sqlite
