@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "rm -rf .next/dev && NODE_OPTIONS='--max-old-space-size=2048' next dev --turbopack",
+    "build": "next build --turbopack",
+    "prod": "npm run build && next start",
     "start": "next start",
     "lint": "eslint src scripts",
     "test": "vitest run",

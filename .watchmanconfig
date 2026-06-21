@@ -1,0 +1,10 @@
+{
+  "ignore_dirs": [
+    "data",
+    "backups",
+    "outputs",
+    "sample-data",
+    "sample data",
+    "node_modules"
+  ]
+}
