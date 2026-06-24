@@ -218,9 +218,17 @@ export async function searchProducts(args: Record<string, unknown>): Promise<Sea
     }),
   ]);
 
+  const cards = products.map(serializeProductCard);
+  cards.sort((left, right) => {
+    const leftWattageOnly = isWattageOnlyModel(left.model_no);
+    const rightWattageOnly = isWattageOnlyModel(right.model_no);
+    if (leftWattageOnly !== rightWattageOnly) return leftWattageOnly ? 1 : -1;
+    return 0;
+  });
+
   return {
     total,
-    products: products.map(serializeProductCard),
+    products: cards,
   };
 }
 
@@ -389,7 +397,12 @@ export async function compareFactories(args: Record<string, unknown>): Promise<F
       });
       group.productIds.add(product.id);
       group.prices.push(price);
-      if (price < Number.parseFloat(group.sample.price)) {
+      const sampleWattageOnly = isWattageOnlyModel(group.sample.model_no);
+      const productWattageOnly = isWattageOnlyModel(product.modelNo);
+      if (
+        (sampleWattageOnly && !productWattageOnly) ||
+        (sampleWattageOnly === productWattageOnly && price < Number.parseFloat(group.sample.price))
+      ) {
         group.sample = {
           model_no: product.modelNo,
           product_name: product.productName,
@@ -468,6 +481,11 @@ export function parseToolNumber(value: unknown): number | null {
 
 export function normalizeToolText(value: unknown): string {
   return typeof value === "string" ? value.normalize("NFC").trim() : "";
+}
+
+export function isWattageOnlyModel(modelNo: string | null): boolean {
+  if (!modelNo) return true;
+  return /^\d+(\.\d+)?[wW]$/.test(modelNo.trim());
 }
 
 export function formatCartonDimensions(

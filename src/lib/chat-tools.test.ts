@@ -4,6 +4,7 @@ import {
   buildChatQuoteFormData,
   clampToolLimit,
   formatCartonDimensions,
+  isWattageOnlyModel,
   normalizeToolText,
   parseToolNumber,
   serializeChatProductOffer,
@@ -34,6 +35,22 @@ describe("chat tool helpers", () => {
   it("formats carton dimensions only when all dimensions exist", () => {
     expect(formatCartonDimensions("46", "42.5", "33.5")).toBe("46×42.5×33.5");
     expect(formatCartonDimensions("46", null, "33.5")).toBeNull();
+  });
+
+  it("detects pure wattage models", () => {
+    expect(isWattageOnlyModel("10W")).toBe(true);
+    expect(isWattageOnlyModel("36w")).toBe(true);
+    expect(isWattageOnlyModel("0.5W")).toBe(true);
+    expect(isWattageOnlyModel("100W")).toBe(true);
+    expect(isWattageOnlyModel(null)).toBe(true);
+  });
+
+  it("passes real model numbers", () => {
+    expect(isWattageOnlyModel("JJL-T5210")).toBe(false);
+    expect(isWattageOnlyModel("YB05-120-圆形")).toBe(false);
+    expect(isWattageOnlyModel("W-JD01-10")).toBe(false);
+    expect(isWattageOnlyModel("ON-SPDS10")).toBe(false);
+    expect(isWattageOnlyModel("3W筒灯")).toBe(false);
   });
 
   it("converts params to compact display rows", () => {
