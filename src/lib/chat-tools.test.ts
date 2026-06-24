@@ -6,6 +6,7 @@ import {
   formatCartonDimensions,
   normalizeToolText,
   parseToolNumber,
+  serializeChatProductOffer,
   toDisplayParams,
   type ChatQuoteDraftInput,
 } from "./chat-tools";
@@ -45,6 +46,28 @@ describe("chat tool helpers", () => {
       { key: "watts", value: "36", unit: "W" },
       { key: "unknown", value: "x", unit: null },
     ]);
+  });
+
+  it("includes source file details in chat product offers", () => {
+    expect(
+      serializeChatProductOffer({
+        id: "offer-1",
+        factoryName: "Factory A",
+        purchasePrice: { toString: () => "12.50" },
+        currency: "RMB",
+        moq: "100",
+        sourceFileId: "file-1",
+        sourceFile: { id: "file-1", fileName: "factory-a.xlsx" },
+      }),
+    ).toEqual({
+      id: "offer-1",
+      factory_name: "Factory A",
+      purchase_price: "12.50",
+      currency: "RMB",
+      moq: "100",
+      source_file_id: "file-1",
+      source_file_name: "factory-a.xlsx",
+    });
   });
 
   it("builds quote FormData compatible with the existing quote action", () => {

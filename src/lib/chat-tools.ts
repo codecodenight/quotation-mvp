@@ -24,6 +24,8 @@ export type ChatProductOffer = {
   purchase_price: string;
   currency: string;
   moq: string | null;
+  source_file_id: string | null;
+  source_file_name: string | null;
 };
 
 export type ChatProductCard = {
@@ -54,12 +56,7 @@ export type ProductOffersResult = {
   model_no: string | null;
   category: string | null;
   image_path: string | null;
-  offers: Array<{
-    id: string;
-    factory_name: string;
-    purchase_price: string;
-    currency: string;
-    moq: string | null;
+  offers: Array<ChatProductOffer & {
     ctn_qty: string | null;
     ctn_dimensions: string | null;
     lead_time: string | null;
@@ -258,11 +255,7 @@ export async function getProductOffers(args: Record<string, unknown>): Promise<P
     offers: sortedOffers.map((offer) => {
       const score = scoreByOfferId.get(offer.id);
       return {
-        id: offer.id,
-        factory_name: offer.factoryName,
-        purchase_price: offer.purchasePrice.toString(),
-        currency: offer.currency,
-        moq: offer.moq,
+        ...serializeChatProductOffer(offer),
         ctn_qty: offer.ctnQty,
         ctn_dimensions: formatCartonDimensions(offer.ctnLength, offer.ctnWidth, offer.ctnHeight),
         lead_time: offer.leadTime,
@@ -519,6 +512,8 @@ const productSelection = Prisma.validator<Prisma.ProductSelect>()({
       ctnWidth: true,
       ctnHeight: true,
       leadTime: true,
+      sourceFileId: true,
+      sourceFile: { select: { id: true, fileName: true } },
       remark: true,
       priceUpdatedAt: true,
     },
@@ -548,17 +543,29 @@ function serializeProductCard(product: ProductWithOffers): ChatProductCard {
     product_name: product.productName,
     category: product.category,
     image_path: product.imagePath,
-    recommended_offer: recommendedOffer
-      ? {
-          id: recommendedOffer.id,
-          factory_name: recommendedOffer.factoryName,
-          purchase_price: recommendedOffer.purchasePrice.toString(),
-          currency: recommendedOffer.currency,
-          moq: recommendedOffer.moq,
-        }
-      : null,
+    recommended_offer: recommendedOffer ? serializeChatProductOffer(recommendedOffer) : null,
     offer_count: product.supplierOffers.length,
     params: toDisplayParams(product.params),
+  };
+}
+
+export function serializeChatProductOffer(offer: {
+  id: string;
+  factoryName: string;
+  purchasePrice: { toString(): string };
+  currency: string;
+  moq: string | null;
+  sourceFileId: string | null;
+  sourceFile: { id: string; fileName: string } | null;
+}): ChatProductOffer {
+  return {
+    id: offer.id,
+    factory_name: offer.factoryName,
+    purchase_price: offer.purchasePrice.toString(),
+    currency: offer.currency,
+    moq: offer.moq,
+    source_file_id: offer.sourceFile?.id ?? offer.sourceFileId,
+    source_file_name: offer.sourceFile?.fileName ?? null,
   };
 }
 

@@ -157,6 +157,8 @@ export function ChatClient() {
           purchase_price: offer.purchase_price,
           currency: offer.currency,
           moq: offer.moq,
+          source_file_id: offer.source_file_id,
+          source_file_name: offer.source_file_name,
         },
         offer_count: result.offers.length,
         params: result.params,
@@ -167,6 +169,8 @@ export function ChatClient() {
         purchase_price: offer.purchase_price,
         currency: offer.currency,
         moq: offer.moq,
+        source_file_id: offer.source_file_id,
+        source_file_name: offer.source_file_name,
       },
     );
   }
@@ -229,6 +233,18 @@ export function ChatClient() {
     });
   }
 
+  async function openSourceFile(fileId: string) {
+    try {
+      const response = await fetch(`/api/files/${fileId}/open`, { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json();
+        alert(data.error || "无法打开文件");
+      }
+    } catch {
+      alert("无法连接服务器");
+    }
+  }
+
   return (
     <div className="flex min-h-screen bg-[#f7f3e8] text-ink">
       <main className="flex min-w-0 flex-1 flex-col">
@@ -274,6 +290,7 @@ export function ChatClient() {
                 onAddDraft={addDraftItem}
                 onLoadOffers={loadOffers}
                 onAddOffer={addOfferFromDetails}
+                onOpenSourceFile={openSourceFile}
               />
             ))}
             {isPending ? (
@@ -334,11 +351,13 @@ function ChatMessageView({
   onAddDraft,
   onLoadOffers,
   onAddOffer,
+  onOpenSourceFile,
 }: {
   message: ChatMessage;
   onAddDraft: (product: ChatProductCard) => void;
   onLoadOffers: (productId: string) => void;
   onAddOffer: (result: ProductOffersResult, offer: ProductOffersResult["offers"][number]) => void;
+  onOpenSourceFile: (fileId: string) => void;
 }) {
   const isUser = message.role === "user";
   return (
@@ -364,6 +383,7 @@ function ChatMessageView({
                 onAddDraft={onAddDraft}
                 onLoadOffers={onLoadOffers}
                 onAddOffer={onAddOffer}
+                onOpenSourceFile={onOpenSourceFile}
               />
             ))}
           </div>
@@ -378,11 +398,13 @@ function ToolResultView({
   onAddDraft,
   onLoadOffers,
   onAddOffer,
+  onOpenSourceFile,
 }: {
   result: ChatToolResult;
   onAddDraft: (product: ChatProductCard) => void;
   onLoadOffers: (productId: string) => void;
   onAddOffer: (result: ProductOffersResult, offer: ProductOffersResult["offers"][number]) => void;
+  onOpenSourceFile: (fileId: string) => void;
 }) {
   if ("error" in result.data) {
     return <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{result.data.error}</div>;
@@ -390,9 +412,22 @@ function ToolResultView({
 
   switch (result.toolName) {
     case "search_products":
-      return <ProductCardList result={result.data as SearchProductsResult} onAddDraft={onAddDraft} onLoadOffers={onLoadOffers} />;
+      return (
+        <ProductCardList
+          result={result.data as SearchProductsResult}
+          onAddDraft={onAddDraft}
+          onLoadOffers={onLoadOffers}
+          onOpenSourceFile={onOpenSourceFile}
+        />
+      );
     case "get_product_offers":
-      return <OfferComparisonTable result={result.data as ProductOffersResult} onAddOffer={onAddOffer} />;
+      return (
+        <OfferComparisonTable
+          result={result.data as ProductOffersResult}
+          onAddOffer={onAddOffer}
+          onOpenSourceFile={onOpenSourceFile}
+        />
+      );
     case "search_customer_history":
       return <HistoryTable result={result.data as CustomerHistoryResult} />;
     case "compare_factories":
@@ -406,10 +441,12 @@ function ProductCardList({
   result,
   onAddDraft,
   onLoadOffers,
+  onOpenSourceFile,
 }: {
   result: SearchProductsResult;
   onAddDraft: (product: ChatProductCard) => void;
   onLoadOffers: (productId: string) => void;
+  onOpenSourceFile: (fileId: string) => void;
 }) {
   if (result.products.length === 0) {
     return <div className="rounded-md border border-line bg-white p-3 text-sm text-stone-600">没有找到匹配产品。</div>;
@@ -436,6 +473,17 @@ function ProductCardList({
                 ) : (
                   <span className="text-stone-500">暂无供应商报价</span>
                 )}
+                {product.recommended_offer?.source_file_id ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSourceFile(product.recommended_offer!.source_file_id!)}
+                    className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-xs text-stone-500 hover:text-leaf"
+                    title={product.recommended_offer.source_file_name ?? ""}
+                  >
+                    <FileSpreadsheet size={12} />
+                    <span className="truncate">{product.recommended_offer.source_file_name ?? "源文件"}</span>
+                  </button>
+                ) : null}
               </div>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
@@ -466,9 +514,11 @@ function ProductCardList({
 function OfferComparisonTable({
   result,
   onAddOffer,
+  onOpenSourceFile,
 }: {
   result: ProductOffersResult;
   onAddOffer: (result: ProductOffersResult, offer: ProductOffersResult["offers"][number]) => void;
+  onOpenSourceFile: (fileId: string) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-md border border-line bg-white">
@@ -484,7 +534,20 @@ function OfferComparisonTable({
       </div>
       {result.offers.map((offer) => (
         <div key={offer.id} className="grid grid-cols-[1fr_100px_80px_120px_84px] items-center border-t border-line px-3 py-2 text-sm">
-          <div className="font-semibold">{offer.factory_name}</div>
+          <div className="min-w-0">
+            <div className="font-semibold">{offer.factory_name}</div>
+            {offer.source_file_id && offer.source_file_name ? (
+              <button
+                type="button"
+                onClick={() => onOpenSourceFile(offer.source_file_id!)}
+                className="inline-flex max-w-[200px] items-center gap-1 truncate text-xs text-stone-400 hover:text-leaf"
+                title={offer.source_file_name}
+              >
+                <FileSpreadsheet size={12} />
+                <span className="truncate">{offer.source_file_name}</span>
+              </button>
+            ) : null}
+          </div>
           <div>
             {offer.purchase_price} {offer.currency}
           </div>
