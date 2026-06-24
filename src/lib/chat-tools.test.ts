@@ -7,6 +7,7 @@ import {
   isWattageOnlyModel,
   normalizeToolText,
   parseToolNumber,
+  selectRecommendedChatOffer,
   serializeChatProductOffer,
   toDisplayParams,
   type ChatQuoteDraftInput,
@@ -73,6 +74,7 @@ describe("chat tool helpers", () => {
         purchasePrice: { toString: () => "12.50" },
         currency: "RMB",
         moq: "100",
+        priceFlag: "suspicious_low",
         sourceFileId: "file-1",
         sourceFile: { id: "file-1", fileName: "factory-a.xlsx" },
       }),
@@ -82,9 +84,49 @@ describe("chat tool helpers", () => {
       purchase_price: "12.50",
       currency: "RMB",
       moq: "100",
+      price_flag: "suspicious_low",
       source_file_id: "file-1",
       source_file_name: "factory-a.xlsx",
     });
+  });
+
+  it("prefers unflagged recommended offers over flagged low prices", () => {
+    const offers = [
+      {
+        id: "flagged-cheap",
+        factoryName: "Factory A",
+        purchasePrice: { toString: () => "0.10" },
+        currency: "RMB",
+        moq: null,
+        ctnQty: null,
+        ctnLength: null,
+        ctnWidth: null,
+        ctnHeight: null,
+        priceUpdatedAt: null,
+        remark: null,
+        sourceFileId: null,
+        sourceFile: null,
+        priceFlag: "suspicious_low",
+      },
+      {
+        id: "normal",
+        factoryName: "Factory B",
+        purchasePrice: { toString: () => "12.50" },
+        currency: "RMB",
+        moq: "100",
+        ctnQty: "20",
+        ctnLength: "40",
+        ctnWidth: "30",
+        ctnHeight: "20",
+        priceUpdatedAt: new Date(),
+        remark: "ok",
+        sourceFileId: null,
+        sourceFile: null,
+        priceFlag: null,
+      },
+    ];
+
+    expect(selectRecommendedChatOffer(offers)?.id).toBe("normal");
   });
 
   it("builds quote FormData compatible with the existing quote action", () => {

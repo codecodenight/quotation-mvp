@@ -24,6 +24,7 @@ export type ChatProductOffer = {
   purchase_price: string;
   currency: string;
   moq: string | null;
+  price_flag: string | null;
   source_file_id: string | null;
   source_file_name: string | null;
 };
@@ -534,6 +535,7 @@ const productSelection = Prisma.validator<Prisma.ProductSelect>()({
       sourceFile: { select: { id: true, fileName: true } },
       remark: true,
       priceUpdatedAt: true,
+      priceFlag: true,
     },
     orderBy: [{ factoryName: "asc" }, { createdAt: "desc" }],
   },
@@ -551,9 +553,7 @@ const productSelection = Prisma.validator<Prisma.ProductSelect>()({
 type ProductWithOffers = Prisma.ProductGetPayload<{ select: typeof productSelection }>;
 
 function serializeProductCard(product: ProductWithOffers): ChatProductCard {
-  const scores = rankOffers(product.supplierOffers);
-  const recommendedOfferId = scores[0]?.offerId;
-  const recommendedOffer = product.supplierOffers.find((offer) => offer.id === recommendedOfferId);
+  const recommendedOffer = selectRecommendedChatOffer(product.supplierOffers);
 
   return {
     id: product.id,
@@ -567,12 +567,22 @@ function serializeProductCard(product: ProductWithOffers): ChatProductCard {
   };
 }
 
+export function selectRecommendedChatOffer<
+  T extends { id: string; priceFlag?: string | null } & Parameters<typeof rankOffers>[0][number],
+>(offers: T[]): T | undefined {
+  const scores = rankOffers(offers);
+  const normalOfferIds = new Set(offers.filter((offer) => offer.priceFlag == null).map((offer) => offer.id));
+  const recommendedOfferId = scores.find((score) => normalOfferIds.has(score.offerId))?.offerId ?? scores[0]?.offerId;
+  return offers.find((offer) => offer.id === recommendedOfferId);
+}
+
 export function serializeChatProductOffer(offer: {
   id: string;
   factoryName: string;
   purchasePrice: { toString(): string };
   currency: string;
   moq: string | null;
+  priceFlag?: string | null;
   sourceFileId: string | null;
   sourceFile: { id: string; fileName: string } | null;
 }): ChatProductOffer {
@@ -582,6 +592,7 @@ export function serializeChatProductOffer(offer: {
     purchase_price: offer.purchasePrice.toString(),
     currency: offer.currency,
     moq: offer.moq,
+    price_flag: offer.priceFlag ?? null,
     source_file_id: offer.sourceFile?.id ?? offer.sourceFileId,
     source_file_name: offer.sourceFile?.fileName ?? null,
   };

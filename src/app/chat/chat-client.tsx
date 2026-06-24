@@ -160,6 +160,7 @@ export function ChatClient() {
           purchase_price: offer.purchase_price,
           currency: offer.currency,
           moq: offer.moq,
+          price_flag: offer.price_flag,
           source_file_id: offer.source_file_id,
           source_file_name: offer.source_file_name,
         },
@@ -172,6 +173,7 @@ export function ChatClient() {
         purchase_price: offer.purchase_price,
         currency: offer.currency,
         moq: offer.moq,
+        price_flag: offer.price_flag,
         source_file_id: offer.source_file_id,
         source_file_name: offer.source_file_name,
       },
@@ -490,6 +492,11 @@ function ProductCardList({
                   <span>
                     推荐：{product.recommended_offer.factory_name} / {product.recommended_offer.purchase_price}{" "}
                     {product.recommended_offer.currency}
+                    {product.recommended_offer.price_flag ? (
+                      <span className="ml-1 text-xs text-amber-500" title="价格可能异常">
+                        ⚠
+                      </span>
+                    ) : null}
                   </span>
                 ) : (
                   <span className="text-stone-500">暂无供应商报价</span>
@@ -571,6 +578,11 @@ function OfferComparisonTable({
           </div>
           <div>
             {offer.purchase_price} {offer.currency}
+            {offer.price_flag ? (
+              <span className="ml-1 text-xs text-amber-500" title="价格可能异常">
+                ⚠
+              </span>
+            ) : null}
           </div>
           <div>{offer.moq || "-"}</div>
           <div className="text-xs text-stone-600">{offer.badges.join(" / ") || "-"}</div>

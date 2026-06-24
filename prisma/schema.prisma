@@ -157,6 +157,7 @@ model SupplierOffer {
   sourceFileId  String?  @map("source_file_id")
   remark        String?
   priceUpdatedAt DateTime? @map("price_updated_at")
+  priceFlag     String?  @map("price_flag")
   createdAt     DateTime @default(now()) @map("created_at")
 
   product    Product @relation(fields: [productId], references: [id], onDelete: Restrict)
