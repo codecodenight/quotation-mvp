@@ -477,7 +477,7 @@ function ProductCardList({
                   <button
                     type="button"
                     onClick={() => onOpenSourceFile(product.recommended_offer!.source_file_id!)}
-                    className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-xs text-stone-500 hover:text-leaf"
+                    className="mt-1.5 flex max-w-full items-center gap-1 truncate rounded border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-400 hover:border-leaf hover:text-leaf"
                     title={product.recommended_offer.source_file_name ?? ""}
                   >
                     <FileSpreadsheet size={12} />
