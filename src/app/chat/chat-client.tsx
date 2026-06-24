@@ -2,7 +2,7 @@
 
 import { Bot, Download, FileSpreadsheet, Loader2, Plus, Search, Send, Trash2, X } from "lucide-react";
 import Image from "next/image";
-import { FormEvent, useMemo, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -71,6 +71,7 @@ export function ChatClient() {
     exchangeRate: "7.2",
   });
   const [quoteResult, setQuoteResult] = useState<ChatQuoteGenerateResult | null>(null);
+  const [queryStartTime, setQueryStartTime] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isGeneratingQuote, startQuoteTransition] = useTransition();
 
@@ -91,6 +92,7 @@ export function ChatClient() {
     }
 
     setInput("");
+    setQueryStartTime(Date.now());
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -106,6 +108,7 @@ export function ChatClient() {
   }
 
   function appendAssistantResponse(response: AssistantChatResponse) {
+    setQueryStartTime(null);
     setMessages((current) => [
       ...current,
       {
@@ -293,10 +296,11 @@ export function ChatClient() {
                 onOpenSourceFile={openSourceFile}
               />
             ))}
-            {isPending ? (
+            {isPending && queryStartTime ? (
               <div className="flex max-w-[78%] items-center gap-2 rounded-md border border-line bg-paper px-4 py-3 text-sm text-stone-600 shadow-panel">
                 <Loader2 className="animate-spin" size={16} />
                 正在查询...
+                <ElapsedTimer startTime={queryStartTime} />
               </div>
             ) : null}
           </div>
@@ -344,6 +348,23 @@ export function ChatClient() {
       ) : null}
     </div>
   );
+}
+
+function ElapsedTimer({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  if (elapsed < 2) {
+    return null;
+  }
+
+  return <span className="tabular-nums text-stone-400">{elapsed}s</span>;
 }
 
 function ChatMessageView({

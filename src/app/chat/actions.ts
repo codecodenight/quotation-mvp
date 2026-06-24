@@ -83,6 +83,11 @@ export async function sendChatMessage(
           continue;
         }
         const args = parseToolArguments(toolCall.function.arguments);
+        const numericFilterKeys = ["min_efficacy", "max_efficacy", "min_watts", "max_watts", "cri"];
+        const usedFilters = numericFilterKeys.filter((key) => args[key] != null);
+        if (usedFilters.length > 0) {
+          console.log(`[CHAT-FILTER] ${toolCall.function.name} numeric filters:`, usedFilters.join(", "));
+        }
         const result = await executeChatTool(toolCall.function.name, args);
         toolResults.push(result);
         toolMessages.push({
