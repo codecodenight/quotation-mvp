@@ -4,6 +4,7 @@ import { Bot, Download, FileSpreadsheet, Loader2, Plus, Search, Send, Trash2, X 
 import Image from "next/image";
 import { FormEvent, useMemo, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import {
   generateQuoteFromChatDraft,
@@ -351,7 +352,7 @@ function ChatMessageView({
           <div className="whitespace-pre-wrap text-sm leading-6">{message.text}</div>
         ) : (
           <div className="prose prose-sm prose-stone max-w-none prose-headings:my-2 prose-p:my-2 prose-table:text-sm prose-th:bg-[#3F4A35] prose-th:text-white prose-td:border prose-td:border-line prose-th:border prose-th:border-line">
-            <ReactMarkdown>{message.text}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
           </div>
         )}
         {!isUser && message.toolResults.length > 0 ? (
