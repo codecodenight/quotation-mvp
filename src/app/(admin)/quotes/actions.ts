@@ -53,6 +53,7 @@ export async function createQuote(formData: FormData): Promise<CreateQuoteResult
     items: quoteItems.map(({ offer, quantity, remark, salePrice }) => ({
       productId: offer.productId,
       supplierOfferId: offer.id,
+      imagePath: offer.product.imagePath,
       productName: offer.product.productName,
       category: offer.product.category,
       modelNo: offer.product.modelNo,
@@ -125,6 +126,7 @@ export async function previewQuote(formData: FormData): Promise<QuotePreviewData
     items: quoteItems.map(({ offer, quantity, remark }) => ({
       productId: offer.productId,
       supplierOfferId: offer.id,
+      imagePath: offer.product.imagePath,
       productName: offer.product.productName,
       category: offer.product.category,
       modelNo: offer.product.modelNo,

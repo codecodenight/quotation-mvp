@@ -49,6 +49,7 @@ export interface QuoteTemplateConfig {
 
 export interface QuoteTemplateItem {
   productName: string;
+  imagePath?: string | null;
   modelNo: string | null;
   size: string | null;
   material: string | null;

@@ -46,6 +46,7 @@ type QuoteTableSourceData = {
 type QuoteTableSourceItem = {
   productId?: string;
   supplierOfferId?: string;
+  imagePath?: string | null;
   productName: string;
   category?: string | null;
   modelNo: string | null;
@@ -67,6 +68,12 @@ type QuoteTableSourceItem = {
 
 const SIZE_PARAM_KEYS = new Set(["size_display", "length_mm", "width_mm", "height_mm"]);
 const WARNING_TIERS: WarningTier[] = ["customer", "quote", "logistics"];
+const IMAGE_COLUMN: QuoteTableColumn = {
+  key: "image",
+  header: "Photo",
+  width: 12,
+  align: "center",
+};
 
 const TEMPLATE_IDS_BY_CATEGORY: Record<string, string> = {
   G4G9: "g4g9",
@@ -156,6 +163,7 @@ export function buildGenericRowCells(
   customerMode: boolean,
 ): Record<string, QuoteCellValue> {
   const cells: Record<string, QuoteCellValue> = {
+    image: item.imagePath ?? null,
     modelNo: item.modelNo ?? "",
     productDetails: buildProductDetails(item),
     salePrice: readWorkbookNumber(item.salePrice),
@@ -179,6 +187,7 @@ export function buildGenericRowCells(
 export function buildTemplateItem(item: QuoteTableSourceItem, currency: string): QuoteTemplateItem {
   return {
     productName: item.productName,
+    imagePath: item.imagePath ?? null,
     modelNo: item.modelNo,
     size: item.size,
     material: item.material,
@@ -260,7 +269,7 @@ function buildTemplateColumns(
   currency: string,
   customerMode: boolean,
 ): QuoteTableColumn[] {
-  const columns = template.columns.map((column) => toTableColumn(column, currency));
+  const columns = [IMAGE_COLUMN, ...template.columns.map((column) => toTableColumn(column, currency))];
   if (customerMode) {
     return columns;
   }
@@ -284,6 +293,7 @@ function buildTemplateColumns(
 
 function buildGenericColumns(currency: string, customerMode: boolean): QuoteTableColumn[] {
   const columns: QuoteTableColumn[] = [
+    IMAGE_COLUMN,
     { key: "modelNo", header: "Model Name", width: 18, align: "left" },
     { key: "productDetails", header: "Product Details", width: 48, align: "left" },
   ];
@@ -317,6 +327,7 @@ function buildTemplateRowCells(
   customerMode: boolean,
 ): Record<string, QuoteCellValue> {
   const cells = template.buildRowCells(buildTemplateItem(item, currency), index);
+  cells.image = item.imagePath ?? null;
   if (!customerMode) {
     cells.factoryName = item.factoryName;
     cells.purchasePrice = formatPurchasePrice(item);

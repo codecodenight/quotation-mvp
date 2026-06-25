@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
 import type * as ExcelJSNamespace from "exceljs";
 
@@ -26,6 +26,7 @@ type SalePriceInput = {
 export type QuoteWorkbookItem = {
   productId?: string;
   supplierOfferId?: string;
+  imagePath?: string | null;
   productName: string;
   category?: string | null;
   modelNo: string | null;
@@ -133,7 +134,7 @@ export async function writeQuoteWorkbook(
 
   model.rows.forEach((modelRow, index) => {
     const row = sheet.getRow(8 + index);
-    row.values = columns.map((column) => modelRow.cells[column.key] ?? "");
+    row.values = columns.map((column) => getExcelCellValue(modelRow, column));
     row.height = 54;
     if (salePriceColumnIndex > 0) {
       row.getCell(salePriceColumnIndex).numFmt =
@@ -175,6 +176,7 @@ export async function writeQuoteWorkbook(
     to: `${lastColumnLetter}7`,
   };
 
+  await embedProductImages(workbook, sheet, model, columns, 8);
   await saveWorkbook(workbook, filePath);
 }
 
@@ -202,8 +204,8 @@ async function writeTemplatedQuoteWorkbook(
 
   model.rows.forEach((modelRow, index) => {
     const row = sheet.getRow(2 + index);
-    row.values = columns.map((column) => modelRow.cells[column.key] ?? "");
-    applyDataRowStyle(row, salePriceColumnIndex, columns[salePriceColumnIndex - 1]?.numFmt);
+    row.values = columns.map((column) => getExcelCellValue(modelRow, column));
+    applyDataRowStyle(row, salePriceColumnIndex, columns[salePriceColumnIndex - 1]?.numFmt, hasImage(modelRow));
   });
 
   sheet.autoFilter = {
@@ -211,12 +213,70 @@ async function writeTemplatedQuoteWorkbook(
     to: `${lastColumnLetter}1`,
   };
 
+  await embedProductImages(workbook, sheet, model, columns, 2);
   await saveWorkbook(workbook, filePath);
 }
 
 async function saveWorkbook(workbook: ExcelJSNamespace.Workbook, filePath: string): Promise<void> {
   const buffer = await workbook.xlsx.writeBuffer();
   await writeFile(filePath, Buffer.from(buffer));
+}
+
+function getExcelCellValue(row: QuoteTableModel["rows"][number], column: QuoteTableColumn): string | number {
+  if (column.key === "image") {
+    return "";
+  }
+  return row.cells[column.key] ?? "";
+}
+
+async function embedProductImages(
+  workbook: ExcelJSNamespace.Workbook,
+  sheet: ExcelJSNamespace.Worksheet,
+  model: QuoteTableModel,
+  columns: QuoteTableColumn[],
+  dataStartRow: number,
+): Promise<void> {
+  const imageColumnIndex = columns.findIndex((column) => column.key === "image");
+  if (imageColumnIndex < 0) {
+    return;
+  }
+
+  for (let index = 0; index < model.rows.length; index += 1) {
+    const imagePath = model.rows[index].cells.image;
+    if (typeof imagePath !== "string" || imagePath.trim().length === 0) {
+      continue;
+    }
+
+    try {
+      const buffer = await readFile(imagePath);
+      const imageId = workbook.addImage({
+        buffer,
+        extension: imageExtensionFromPath(imagePath),
+      });
+      sheet.addImage(imageId, {
+        tl: { col: imageColumnIndex, row: dataStartRow + index - 1 },
+        ext: { width: 60, height: 60 },
+      });
+    } catch {
+      // Missing or unreadable product images should leave a blank photo cell, not block export.
+    }
+  }
+}
+
+function hasImage(row: QuoteTableModel["rows"][number]): boolean {
+  const value = row.cells.image;
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function imageExtensionFromPath(filePath: string): ExcelJSNamespace.Image["extension"] {
+  const normalized = filePath.toLowerCase();
+  if (normalized.endsWith(".png")) {
+    return "png";
+  }
+  if (normalized.endsWith(".gif")) {
+    return "gif";
+  }
+  return "jpeg";
 }
 
 function writeTemplateHeaderRow(sheet: ExcelJSNamespace.Worksheet, columns: QuoteTableColumn[]): void {
@@ -231,8 +291,13 @@ function writeTemplateHeaderRow(sheet: ExcelJSNamespace.Worksheet, columns: Quot
   });
 }
 
-function applyDataRowStyle(row: ExcelJSNamespace.Row, priceColumnIndex: number, priceNumFmt?: string): void {
-  row.height = 22;
+function applyDataRowStyle(
+  row: ExcelJSNamespace.Row,
+  priceColumnIndex: number,
+  priceNumFmt?: string,
+  containsImage = false,
+): void {
+  row.height = containsImage ? 54 : 22;
   row.eachCell({ includeEmpty: true }, (cell) => {
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     cell.border = thinBorder();

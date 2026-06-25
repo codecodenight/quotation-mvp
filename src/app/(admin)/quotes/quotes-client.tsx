@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useRef, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
@@ -1382,7 +1382,7 @@ function PreviewRow({
     <tr className={`align-top ${highestTier ? WARNING_TIER_META[highestTier].rowClass : ""}`}>
       {columns.map((column) => (
         <td key={column.key} className={getPreviewCellClass(column)}>
-          {formatPreviewCell(row.cells[column.key], column)}
+          {formatPreviewCell(row.cells[column.key], column, row)}
         </td>
       ))}
       <td className="min-w-48 px-3 py-3">
@@ -1418,6 +1418,9 @@ function getPreviewHeaderClass(column: QuotePreviewData["columns"][number]): str
 }
 
 function getPreviewCellClass(column: QuotePreviewData["columns"][number]): string {
+  if (column.key === "image") {
+    return "w-20 min-w-20 px-3 py-3 text-center";
+  }
   const alignment = column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left";
   const whitespace = column.key === "productDetails" ? "whitespace-pre-line" : "whitespace-nowrap";
   const emphasis = column.key === "modelNo" || column.key === "salePrice" ? "font-semibold text-ink" : "text-stone-700";
@@ -1425,7 +1428,25 @@ function getPreviewCellClass(column: QuotePreviewData["columns"][number]): strin
   return `px-3 py-3 ${alignment} ${whitespace} ${emphasis} ${width}`.trim();
 }
 
-function formatPreviewCell(value: unknown, column: QuotePreviewData["columns"][number]): string {
+function formatPreviewCell(
+  value: unknown,
+  column: QuotePreviewData["columns"][number],
+  row: QuotePreviewRow,
+): ReactNode {
+  if (column.key === "image") {
+    if (!value || typeof value !== "string") {
+      return <span className="text-stone-400">-</span>;
+    }
+    return (
+      <img
+        src={`/api/products/${row.productId}/image`}
+        alt=""
+        loading="lazy"
+        className="mx-auto h-12 w-12 rounded-sm border border-stone-200 bg-white object-contain"
+      />
+    );
+  }
+
   if (value === null || value === undefined || value === "") {
     return "-";
   }

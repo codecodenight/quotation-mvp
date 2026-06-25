@@ -80,6 +80,7 @@ describe("buildQuoteTableModel", () => {
     expect(model.templateId).toBe("panel");
     expect(model.customerMode).toBe(true);
     expect(model.columns.map((column) => column.key)).toEqual([
+      "image",
       "no",
       "modelNo",
       "power",
@@ -102,6 +103,7 @@ describe("buildQuoteTableModel", () => {
       productId: "product-panel",
       supplierOfferId: "offer-panel",
       cells: {
+        image: null,
         no: 1,
         modelNo: "PNL-36W",
         power: "36W",
@@ -128,6 +130,7 @@ describe("buildQuoteTableModel", () => {
     const model = buildQuoteTableModel(quoteWithItems([panelItem]), { customerMode: false });
 
     expect(model.columns.map((column) => column.key)).toEqual([
+      "image",
       "no",
       "modelNo",
       "factoryName",
@@ -156,6 +159,7 @@ describe("buildQuoteTableModel", () => {
 
     expect(model.templateId).toBe("generic");
     expect(model.columns.map((column) => column.key)).toEqual([
+      "image",
       "modelNo",
       "productDetails",
       "salePrice",
@@ -168,6 +172,7 @@ describe("buildQuoteTableModel", () => {
       "remark",
     ]);
     expect(model.rows[0].cells).toMatchObject({
+      image: null,
       modelNo: "PNL-36W",
       salePrice: 8.5,
       moq: "500",
@@ -184,6 +189,7 @@ describe("buildQuoteTableModel", () => {
     const model = buildQuoteTableModel(quoteWithItems([panelItem, mixedItem]), { customerMode: false });
 
     expect(model.columns.map((column) => column.key)).toEqual([
+      "image",
       "modelNo",
       "productDetails",
       "factoryName",
@@ -199,6 +205,26 @@ describe("buildQuoteTableModel", () => {
     ]);
     expect(model.rows[0].cells.factoryName).toBe("Panel Factory");
     expect(model.rows[0].cells.purchasePrice).toBe("50.00 RMB");
+  });
+
+  test("adds a photo column and keeps image paths in row cells", () => {
+    const imagePath = "/tmp/quote-product-image.jpg";
+    const model = buildQuoteTableModel(quoteWithItems([{ ...panelItem, imagePath }]), { customerMode: true });
+
+    expect(model.columns[0]).toMatchObject({ key: "image", header: "Photo", width: 12, align: "center" });
+    expect(model.rows[0].cells.image).toBe(imagePath);
+  });
+
+  test("keeps photo as the first column in internal mode", () => {
+    const model = buildQuoteTableModel(quoteWithItems([{ ...panelItem, imagePath: null }]), { customerMode: false });
+
+    expect(model.columns.slice(0, 4).map((column) => column.key)).toEqual([
+      "image",
+      "no",
+      "modelNo",
+      "factoryName",
+    ]);
+    expect(model.rows[0].cells.image).toBeNull();
   });
 
   test("preview exposes the same columns and keyed cells as the shared table model", () => {
