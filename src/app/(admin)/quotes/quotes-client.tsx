@@ -1316,28 +1316,21 @@ function QuotePreviewPanel({
         <table className="w-full border-collapse text-left text-sm">
           <thead className="bg-[#3F4A35] text-xs uppercase tracking-[0.08em] text-white">
             <tr>
-              <th className="px-3 py-3">Model Name</th>
-              <th className="px-3 py-3">Product Details</th>
-              {!preview.customerMode ? <th className="px-3 py-3">Factory</th> : null}
-              {!preview.customerMode ? <th className="px-3 py-3 text-right">采购价</th> : null}
-              <th className="px-3 py-3 text-right">Unit Price</th>
-              <th className="px-3 py-3">MOQ</th>
-              <th className="px-3 py-3">CTN Qty</th>
-              <th className="px-3 py-3">L</th>
-              <th className="px-3 py-3">W</th>
-              <th className="px-3 py-3">H</th>
-              <th className="px-3 py-3">Volume</th>
-              <th className="px-3 py-3">Remark</th>
+              {preview.columns.map((column) => (
+                <th key={column.key} className={getPreviewHeaderClass(column)}>
+                  {column.header}
+                </th>
+              ))}
               <th className="px-3 py-3">检查</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line bg-white">
             {visibleRows.map((row) => (
-              <PreviewRow key={`${row.productId}:${row.supplierOfferId}`} row={row} customerMode={preview.customerMode} />
+              <PreviewRow key={`${row.productId}:${row.supplierOfferId}`} row={row} columns={preview.columns} />
             ))}
             {visibleRows.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-stone-500" colSpan={preview.customerMode ? 11 : 13}>
+                <td className="px-3 py-8 text-center text-stone-500" colSpan={preview.columns.length + 1}>
                   当前没有匹配的警告行。
                 </td>
               </tr>
@@ -1375,24 +1368,23 @@ function QuotePreviewPanel({
   );
 }
 
-function PreviewRow({ row, customerMode }: { row: QuotePreviewRow; customerMode: boolean }) {
+function PreviewRow({
+  row,
+  columns,
+}: {
+  row: QuotePreviewRow;
+  columns: QuotePreviewData["columns"];
+}) {
   const highestTier = getHighestWarningTier(row.warnings);
   const groupedWarnings = groupWarningsByTier(row.warnings);
 
   return (
     <tr className={`align-top ${highestTier ? WARNING_TIER_META[highestTier].rowClass : ""}`}>
-      <td className="min-w-36 px-3 py-3 font-semibold text-ink">{row.modelNo || "-"}</td>
-      <td className="max-w-sm whitespace-pre-line px-3 py-3 text-stone-700">{row.productDetails || "-"}</td>
-      {!customerMode ? <td className="px-3 py-3 text-stone-600">{row.factoryName}</td> : null}
-      {!customerMode ? <td className="px-3 py-3 text-right font-mono text-stone-600">{row.purchasePrice}</td> : null}
-      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-ink">{row.salePriceDisplay}</td>
-      <td className="whitespace-nowrap px-3 py-3">{row.moq || "-"}</td>
-      <td className="whitespace-nowrap px-3 py-3">{row.ctnQty || "-"}</td>
-      <td className="whitespace-nowrap px-3 py-3">{row.ctnL || "-"}</td>
-      <td className="whitespace-nowrap px-3 py-3">{row.ctnW || "-"}</td>
-      <td className="whitespace-nowrap px-3 py-3">{row.ctnH || "-"}</td>
-      <td className="whitespace-nowrap px-3 py-3">{row.volume || "-"}</td>
-      <td className="min-w-40 px-3 py-3">{row.remark || "-"}</td>
+      {columns.map((column) => (
+        <td key={column.key} className={getPreviewCellClass(column)}>
+          {formatPreviewCell(row.cells[column.key], column)}
+        </td>
+      ))}
       <td className="min-w-48 px-3 py-3">
         {highestTier ? (
           <div className="space-y-2 text-xs">
@@ -1419,6 +1411,29 @@ function PreviewRow({ row, customerMode }: { row: QuotePreviewRow; customerMode:
       </td>
     </tr>
   );
+}
+
+function getPreviewHeaderClass(column: QuotePreviewData["columns"][number]): string {
+  return `px-3 py-3 ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"}`;
+}
+
+function getPreviewCellClass(column: QuotePreviewData["columns"][number]): string {
+  const alignment = column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left";
+  const whitespace = column.key === "productDetails" ? "whitespace-pre-line" : "whitespace-nowrap";
+  const emphasis = column.key === "modelNo" || column.key === "salePrice" ? "font-semibold text-ink" : "text-stone-700";
+  const width = column.key === "productDetails" ? "max-w-sm" : column.key === "remark" ? "min-w-40" : "";
+  return `px-3 py-3 ${alignment} ${whitespace} ${emphasis} ${width}`.trim();
+}
+
+function formatPreviewCell(value: unknown, column: QuotePreviewData["columns"][number]): string {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "number") {
+    const currency = column.numFmt?.match(/"([^"]+)"/)?.[1];
+    return currency ? `${value.toFixed(2)} ${currency}` : String(value);
+  }
+  return String(value);
 }
 
 function PreviewWarningBadges({

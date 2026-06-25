@@ -125,7 +125,7 @@ export async function generateQuoteFromChatDraft(input: ChatQuoteDraftInput): Pr
     downloadUrl: `/api/quotes/${created.quoteId}/download`,
     itemCount: preview.rows.length,
     totalSaleAmount: input.items
-      .reduce((sum, item, index) => sum + Number(preview.rows[index]?.salePrice ?? 0) * item.quantity, 0)
+      .reduce((sum, item, index) => sum + Number(preview.rows[index]?.cells.salePrice ?? 0) * item.quantity, 0)
       .toFixed(2),
   };
 }

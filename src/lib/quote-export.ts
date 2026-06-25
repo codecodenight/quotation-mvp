@@ -1,6 +1,10 @@
 import ExcelJS from "exceljs";
 
-import { buildProductDetailsFromParams, type ProductDetailsParam } from "./product-details-builder";
+import type { ProductDetailsParam } from "./product-details-builder";
+import { buildQuoteTableModel, type QuoteTableColumn, type QuoteTableModel } from "./quote-table-model";
+import { getTemplate, type QuoteTemplateConfig } from "./quote-templates";
+
+export { buildProductDetails, calcVolume, cleanMoq, formatDimension } from "./quote-table-model";
 
 type SalePriceInput = {
   purchasePrice: string | number | { toString(): string };
@@ -11,7 +15,10 @@ type SalePriceInput = {
 };
 
 export type QuoteWorkbookItem = {
+  productId?: string;
+  supplierOfferId?: string;
   productName: string;
+  category?: string | null;
   modelNo: string | null;
   factoryName: string;
   purchasePrice: string | number | { toString(): string };
@@ -67,7 +74,14 @@ export async function writeQuoteWorkbook(
   options: QuoteWorkbookOptions = {},
 ): Promise<void> {
   const customerMode = options.customerMode ?? true;
-  const columns = buildQuoteColumns(customerMode);
+  const model = buildQuoteTableModel(quote, { customerMode });
+  const categoryTemplate = findCategoryTemplate(quote);
+  if (categoryTemplate) {
+    await writeTemplatedQuoteWorkbook(model, filePath, categoryTemplate);
+    return;
+  }
+
+  const columns = model.columns;
   const lastColumnLetter = columnLetter(columns.length);
   const salePriceColumnIndex = columns.findIndex((column) => column.key === "salePrice") + 1;
   const cartonStartColumnIndex = columns.findIndex((column) => column.key === "ctnLength") + 1;
@@ -90,31 +104,34 @@ export async function writeQuoteWorkbook(
   sheet.getRow(1).height = 28;
 
   sheet.getCell("A3").value = "客户";
-  sheet.getCell("B3").value = quote.customerName;
+  sheet.getCell("B3").value = model.meta.customerName;
   sheet.getCell("D3").value = "报价币种";
-  sheet.getCell("E3").value = quote.currency;
+  sheet.getCell("E3").value = model.meta.currency;
   sheet.getCell("G3").value = "报价日期";
-  sheet.getCell("H3").value = quote.createdAt;
+  sheet.getCell("H3").value = model.meta.createdAt;
   sheet.getCell("H3").numFmt = "yyyy-mm-dd";
 
   sheet.getCell("A4").value = "利润率";
-  sheet.getCell("B4").value = Number(readNonNegativeNumber(quote.profitMargin, "利润率不能小于 0"));
+  sheet.getCell("B4").value = model.meta.profitMargin;
   sheet.getCell("B4").numFmt = "0.00%";
-  sheet.getCell("D4").value = `汇率（1 ${quote.currency} = ? ${getPurchaseCurrencyLabel(quote.items)}）`;
-  sheet.getCell("E4").value = quote.exchangeRate === null ? "-" : Number(quote.exchangeRate.toString());
+  sheet.getCell("D4").value = `汇率（1 ${model.meta.currency} = ? ${model.meta.purchaseCurrency}）`;
+  sheet.getCell("E4").value = model.meta.exchangeRate === null ? "-" : model.meta.exchangeRate;
 
-  writeHeaderRows(sheet, columns, quote.currency, cartonStartColumnIndex);
+  writeHeaderRows(sheet, columns, cartonStartColumnIndex);
   sheet.getRow(6).height = 22;
   sheet.getRow(7).height = 22;
 
-  quote.items.forEach((item, index) => {
+  model.rows.forEach((modelRow, index) => {
     const row = sheet.getRow(8 + index);
-    row.values = columns.map((column) => readQuoteCellValue(column.key, item));
+    row.values = columns.map((column) => modelRow.cells[column.key] ?? "");
     row.height = 54;
-    row.getCell(salePriceColumnIndex).numFmt = `#,##0.00 "${quote.currency}"`;
+    if (salePriceColumnIndex > 0) {
+      row.getCell(salePriceColumnIndex).numFmt =
+        columns[salePriceColumnIndex - 1].numFmt ?? `#,##0.00 "${model.meta.currency}"`;
+    }
   });
 
-  const lastRow = Math.max(8, 7 + quote.items.length);
+  const lastRow = Math.max(8, 7 + model.rows.length);
   for (let rowNumber = 6; rowNumber <= lastRow; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
     row.eachCell({ includeEmpty: true }, (cell) => {
@@ -151,86 +168,81 @@ export async function writeQuoteWorkbook(
   await workbook.xlsx.writeFile(filePath);
 }
 
-type QuoteColumnKey =
-  | "modelNo"
-  | "productDetails"
-  | "factoryName"
-  | "purchasePrice"
-  | "salePrice"
-  | "moq"
-  | "ctnQty"
-  | "ctnLength"
-  | "ctnWidth"
-  | "ctnHeight"
-  | "ctnVolume"
-  | "remark";
+async function writeTemplatedQuoteWorkbook(
+  model: QuoteTableModel,
+  filePath: string,
+  template: QuoteTemplateConfig,
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "quotation-mvp";
+  workbook.created = model.meta.createdAt;
 
-type QuoteColumn = {
-  key: QuoteColumnKey;
-  header: string;
-  width: number;
-};
+  const columns = model.columns;
+  const lastColumnLetter = columnLetter(columns.length);
+  const salePriceColumnIndex = columns.findIndex((column) => column.key === "salePrice") + 1;
+  const sheet = workbook.addWorksheet(template.sheetName, {
+    views: [{ state: "frozen", ySplit: 1, topLeftCell: "A2" }],
+    pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
 
-function buildQuoteColumns(customerMode: boolean): QuoteColumn[] {
-  const columns: QuoteColumn[] = [
-    { key: "modelNo", header: "Model Name", width: 18 },
-    { key: "productDetails", header: "Product Details", width: 48 },
-  ];
+  sheet.columns = columns.map(({ key, width }) => ({ key, width }));
 
-  if (!customerMode) {
-    columns.push(
-      { key: "factoryName", header: "Factory Name", width: 18 },
-      { key: "purchasePrice", header: "Purchase Price", width: 16 },
-    );
-  }
+  writeTemplateHeaderRow(sheet, columns);
 
-  columns.push(
-    { key: "salePrice", header: "Unit Price (USD)", width: 16 },
-    { key: "moq", header: "MOQ", width: 12 },
-    { key: "ctnQty", header: "CTN Qty", width: 12 },
-    { key: "ctnLength", header: "L", width: 10 },
-    { key: "ctnWidth", header: "W", width: 10 },
-    { key: "ctnHeight", header: "H", width: 10 },
-    { key: "ctnVolume", header: "Volume", width: 14 },
-    { key: "remark", header: "Remark", width: 24 },
-  );
+  model.rows.forEach((modelRow, index) => {
+    const row = sheet.getRow(2 + index);
+    row.values = columns.map((column) => modelRow.cells[column.key] ?? "");
+    applyDataRowStyle(row, salePriceColumnIndex, columns[salePriceColumnIndex - 1]?.numFmt);
+  });
 
-  return columns;
+  sheet.autoFilter = {
+    from: "A1",
+    to: `${lastColumnLetter}1`,
+  };
+
+  await workbook.xlsx.writeFile(filePath);
 }
 
-function readQuoteCellValue(key: QuoteColumnKey, item: QuoteWorkbookItem): string | number {
-  switch (key) {
-    case "modelNo":
-      return item.modelNo ?? "";
-    case "productDetails":
-      return buildProductDetails(item);
-    case "factoryName":
-      return item.factoryName;
-    case "purchasePrice":
-      return `${Number(item.purchasePrice.toString()).toFixed(2)} ${item.purchaseCurrency}`;
-    case "salePrice":
-      return Number(item.salePrice.toString());
-    case "moq":
-      return cleanMoq(item.moq);
-    case "ctnQty":
-      return item.ctnQty ?? "";
-    case "ctnLength":
-      return formatDimension(item.ctnLength);
-    case "ctnWidth":
-      return formatDimension(item.ctnWidth);
-    case "ctnHeight":
-      return formatDimension(item.ctnHeight);
-    case "ctnVolume":
-      return calcVolume(item.ctnLength, item.ctnWidth, item.ctnHeight);
-    case "remark":
-      return item.remark ?? "";
+function writeTemplateHeaderRow(sheet: ExcelJS.Worksheet, columns: QuoteTableColumn[]): void {
+  sheet.getRow(1).height = 24;
+  columns.forEach((column, index) => {
+    const cell = sheet.getRow(1).getCell(index + 1);
+    cell.value = column.header;
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3F4A35" } };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.border = thinBorder();
+  });
+}
+
+function applyDataRowStyle(row: ExcelJS.Row, priceColumnIndex: number, priceNumFmt?: string): void {
+  row.height = 22;
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.border = thinBorder();
+  });
+  if (priceColumnIndex > 0) {
+    row.getCell(priceColumnIndex).numFmt = priceNumFmt ?? '#,##0.00 "USD"';
   }
+}
+
+function findCategoryTemplate(quote: QuoteWorkbookData): QuoteTemplateConfig | null {
+  const itemCategories = quote.items.map((item) => item.category?.trim() ?? "");
+  if (itemCategories.length === 0 || itemCategories.some((category) => !category)) {
+    return null;
+  }
+
+  const categories = new Set(itemCategories);
+  if (categories.size !== 1) {
+    return null;
+  }
+
+  return getTemplate(Array.from(categories)[0]);
 }
 
 function writeHeaderRows(
   sheet: ExcelJS.Worksheet,
-  columns: QuoteColumn[],
-  currency: string,
+  columns: QuoteTableColumn[],
   cartonStartColumnIndex: number,
 ): void {
   const lastColumnIndex = columns.length;
@@ -238,7 +250,7 @@ function writeHeaderRows(
 
   for (let columnNumber = 1; columnNumber <= lastColumnIndex; columnNumber += 1) {
     const key = columns[columnNumber - 1].key;
-    const header = key === "salePrice" ? `Unit Price (${currency})` : columns[columnNumber - 1].header;
+    const header = columns[columnNumber - 1].header;
 
     if (columnNumber < cartonStartColumnIndex || columnNumber > cartonEndColumnIndex) {
       sheet.mergeCells(6, columnNumber, 7, columnNumber);
@@ -251,99 +263,6 @@ function writeHeaderRows(
 
   sheet.mergeCells(6, cartonStartColumnIndex, 6, cartonEndColumnIndex);
   sheet.getRow(6).getCell(cartonStartColumnIndex).value = "Carton Size";
-}
-
-export function buildProductDetails(item: QuoteWorkbookItem): string {
-  if (item.productParams && item.productParams.length > 0) {
-    const paramDetails = buildProductDetailsFromParams(item.productParams);
-    if (paramDetails) {
-      const size = item.size?.trim() ?? "";
-      const hasSizeDisplay = item.productParams.some(
-        (param) => param.paramKey === "size_display" && Boolean(param.normalizedValue?.trim()),
-      );
-      if (!hasSizeDisplay && size) {
-        return `${paramDetails}\nSize: ${size}`;
-      }
-      return paramDetails;
-    }
-  }
-
-  const remark = cleanRemarkForCustomer(stripModelPrefix(item.productRemark?.trim() ?? "", item.modelNo));
-  const productName = stripModelPrefix(item.productName?.trim() ?? "", item.modelNo);
-  const size = item.size?.trim() ?? "";
-  const details = remark || productName;
-
-  if (details && size) {
-    return `${details}\nSize: ${size}`;
-  }
-  if (details) {
-    return details;
-  }
-  return size;
-}
-
-export function cleanMoq(raw: string | null): string {
-  if (!raw) {
-    return "";
-  }
-
-  const match = raw.match(/^[\d,]+/);
-  return match ? match[0].replace(/,/g, "") : "";
-}
-
-function stripModelPrefix(text: string, modelNo: string | null): string {
-  if (!text || !modelNo?.trim()) {
-    return text;
-  }
-
-  const model = modelNo.trim();
-  if (text.trim().toLowerCase() === model.toLowerCase()) {
-    return "";
-  }
-
-  const pattern = new RegExp(`^${escapeRegExp(model)}(?:\\s*[/|,;:]\\s*|\\s+)`, "i");
-  return text.replace(pattern, "").trim();
-}
-
-function cleanRemarkForCustomer(text: string): string {
-  if (!text) {
-    return "";
-  }
-
-  return text
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !/外箱尺寸|内盒尺寸|彩盒尺寸|包装尺寸|carton\s*size/i.test(line))
-    .filter((line) => !/^\s*\S+\s*[:：]\s*[/／]\s*$/.test(line))
-    .join("\n")
-    .trim();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function formatDimension(value: string | null): string {
-  if (!value) {
-    return "";
-  }
-  return `${value} cm`;
-}
-
-export function calcVolume(length: string | null, width: string | null, height: string | null): string {
-  if (!length || !width || !height) {
-    return "";
-  }
-
-  const parsedLength = Number.parseFloat(length);
-  const parsedWidth = Number.parseFloat(width);
-  const parsedHeight = Number.parseFloat(height);
-  if (!Number.isFinite(parsedLength) || !Number.isFinite(parsedWidth) || !Number.isFinite(parsedHeight)) {
-    return "";
-  }
-
-  return `${((parsedLength * parsedWidth * parsedHeight) / 1_000_000).toFixed(3)} m³`;
 }
 
 function columnLetter(columnCount: number): string {
@@ -377,11 +296,6 @@ function readNonNegativeNumber(value: string | number | { toString(): string }, 
 
 function normalizeCurrency(value: string): string {
   return value.trim().toUpperCase();
-}
-
-function getPurchaseCurrencyLabel(items: QuoteWorkbookItem[]): string {
-  const currencies = new Set(items.map((item) => normalizeCurrency(item.purchaseCurrency)).filter(Boolean));
-  return currencies.size === 1 ? Array.from(currencies)[0] : "采购币种";
 }
 
 function thinBorder(): Partial<ExcelJS.Borders> {

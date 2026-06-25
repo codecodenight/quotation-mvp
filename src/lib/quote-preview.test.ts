@@ -91,22 +91,33 @@ describe("buildQuotePreview", () => {
         logistics: 2,
       },
     });
+    expect(preview.columns.map((column) => column.key)).toEqual([
+      "modelNo",
+      "productDetails",
+      "salePrice",
+      "moq",
+      "ctnQty",
+      "ctnLength",
+      "ctnWidth",
+      "ctnHeight",
+      "ctnVolume",
+      "remark",
+    ]);
     expect(preview.rows[0]).toMatchObject({
       productId: "product-1",
       supplierOfferId: "offer-1",
-      modelNo: "COB-120",
-      productDetails: "COB light strip\n120 LEDs/m\nSize: 8mm",
-      factoryName: "汇孚",
-      purchasePrice: "10.00 RMB",
-      salePrice: "1.67",
-      salePriceDisplay: "1.67 USD",
-      moq: "1000",
-      ctnQty: "10",
-      ctnL: "52.3 cm",
-      ctnW: "49.5 cm",
-      ctnH: "27.4 cm",
-      volume: "0.071 m³",
-      remark: "客户备注",
+      cells: {
+        modelNo: "COB-120",
+        productDetails: "COB light strip\n120 LEDs/m\nSize: 8mm",
+        salePrice: 1.67,
+        moq: "1000",
+        ctnQty: "10",
+        ctnLength: "52.3 cm",
+        ctnWidth: "49.5 cm",
+        ctnHeight: "27.4 cm",
+        ctnVolume: "0.071 m³",
+        remark: "客户备注",
+      },
       warnings: [],
     });
     expect(preview.rows[1].warnings).toEqual([
@@ -149,7 +160,7 @@ describe("buildQuotePreview", () => {
     });
 
     expect(preview.exchangeRate).toBeNull();
-    expect(preview.rows[0].salePriceDisplay).toBe("10.00 RMB");
+    expect(preview.rows[0].cells.salePrice).toBe(10);
   });
 
   test("detects Chinese characters in Product Details as a customer-visible warning", () => {

@@ -51,7 +51,10 @@ export async function createQuote(formData: FormData): Promise<CreateQuoteResult
     exchangeRate: input.exchangeRate,
     createdAt,
     items: quoteItems.map(({ offer, quantity, remark, salePrice }) => ({
+      productId: offer.productId,
+      supplierOfferId: offer.id,
       productName: offer.product.productName,
+      category: offer.product.category,
       modelNo: offer.product.modelNo,
       factoryName: offer.factoryName,
       purchasePrice: offer.purchasePrice,
@@ -123,6 +126,7 @@ export async function previewQuote(formData: FormData): Promise<QuotePreviewData
       productId: offer.productId,
       supplierOfferId: offer.id,
       productName: offer.product.productName,
+      category: offer.product.category,
       modelNo: offer.product.modelNo,
       factoryName: offer.factoryName,
       purchasePrice: offer.purchasePrice,
