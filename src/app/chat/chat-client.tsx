@@ -2,7 +2,7 @@
 
 import { Bot, Download, FileSpreadsheet, Loader2, Plus, Search, Send, Trash2, X } from "lucide-react";
 import Image from "next/image";
-import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -13,6 +13,7 @@ import {
   type AssistantChatResponse,
   type ChatQuoteGenerateResult,
 } from "./actions";
+import { getToolResultLabel } from "./tool-result-labels";
 import type {
   ChatProductCard,
   ChatToolResult,
@@ -433,9 +434,10 @@ function ToolResultView({
     return <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{result.data.error}</div>;
   }
 
+  let content: ReactNode;
   switch (result.toolName) {
     case "search_products":
-      return (
+      content = (
         <ProductCardList
           result={result.data as SearchProductsResult}
           onAddDraft={onAddDraft}
@@ -443,21 +445,34 @@ function ToolResultView({
           onOpenSourceFile={onOpenSourceFile}
         />
       );
+      break;
     case "get_product_offers":
-      return (
+      content = (
         <OfferComparisonTable
           result={result.data as ProductOffersResult}
           onAddOffer={onAddOffer}
           onOpenSourceFile={onOpenSourceFile}
         />
       );
+      break;
     case "search_customer_history":
-      return <HistoryTable result={result.data as CustomerHistoryResult} />;
+      content = <HistoryTable result={result.data as CustomerHistoryResult} />;
+      break;
     case "compare_factories":
-      return <FactoryComparisonCard result={result.data as FactoryComparisonResult} />;
+      content = <FactoryComparisonCard result={result.data as FactoryComparisonResult} />;
+      break;
     default:
       return null;
   }
+
+  const label = getToolResultLabel(result.toolName);
+
+  return (
+    <div>
+      {label ? <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-stone-400">{label}</div> : null}
+      {content}
+    </div>
+  );
 }
 
 function ProductCardList({
