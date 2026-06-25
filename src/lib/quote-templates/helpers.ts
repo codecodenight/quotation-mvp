@@ -1,7 +1,8 @@
 import type { Borders, Worksheet } from "exceljs";
 
-import type { QuoteCellValue } from "../quote-table-model";
-import type { QuoteTemplateConfig, QuoteTemplateItem } from "../quote-templates";
+import type { QuoteTemplateConfig, QuoteTemplateItem } from "../quote-template-registry";
+
+type QuoteCellValue = string | number | null;
 
 export function readParam(item: QuoteTemplateItem, key: string): string {
   return item.params[key]?.trim() ?? "";

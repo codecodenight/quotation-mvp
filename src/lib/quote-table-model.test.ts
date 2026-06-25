@@ -97,7 +97,7 @@ describe("buildQuoteTableModel", () => {
       "ctnSize",
       "volume",
     ]);
-    expect(model.columns.map((column) => column.header)).toContain("FOB Price (USD)");
+    expect(model.columns.map((column) => column.header)).toContain("FOB Price");
     expect(model.rows[0]).toMatchObject({
       productId: "product-panel",
       supplierOfferId: "offer-panel",

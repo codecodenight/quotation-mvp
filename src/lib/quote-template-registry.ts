@@ -1,6 +1,5 @@
 import type { Worksheet } from "exceljs";
 
-import type { QuoteCellValue } from "./quote-table-model";
 import { bulbTemplate } from "./quote-templates/bulb";
 import { cabinetTemplate } from "./quote-templates/cabinet";
 import { ceilingTemplate } from "./quote-templates/ceiling";
@@ -37,13 +36,15 @@ export interface QuoteTemplateColumn {
   width: number;
 }
 
+export type QuoteTemplateCellValue = string | number | null;
+
 export interface QuoteTemplateConfig {
   category: string;
   sheetName: string;
   columns: QuoteTemplateColumn[];
   writeRow: (ws: Worksheet, rowIndex: number, item: QuoteTemplateItem) => void;
   writeHeader?: (ws: Worksheet) => void;
-  buildRowCells: (item: QuoteTemplateItem, index: number) => Record<string, QuoteCellValue>;
+  buildRowCells: (item: QuoteTemplateItem, index: number) => Record<string, QuoteTemplateCellValue>;
 }
 
 export interface QuoteTemplateItem {

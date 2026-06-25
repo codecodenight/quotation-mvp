@@ -1,4 +1,4 @@
-import type { QuoteTemplateConfig, QuoteTemplateItem } from "../quote-templates";
+import type { QuoteTemplateConfig, QuoteTemplateItem } from "../quote-template-registry";
 import {
   buildRowCellsFromValues,
   appendSuffix,

@@ -1,10 +1,19 @@
-import ExcelJS from "exceljs";
+import { writeFile } from "node:fs/promises";
+
+import type * as ExcelJSNamespace from "exceljs";
 
 import type { ProductDetailsParam } from "./product-details-builder";
 import { buildQuoteTableModel, type QuoteTableColumn, type QuoteTableModel } from "./quote-table-model";
-import { getTemplate, type QuoteTemplateConfig } from "./quote-templates";
+import { getTemplate, type QuoteTemplateConfig } from "./quote-template-registry";
 
 export { buildProductDetails, calcVolume, cleanMoq, formatDimension } from "./quote-table-model";
+
+let excelJsModule: typeof ExcelJSNamespace | null = null;
+
+function getExcelJS(): typeof ExcelJSNamespace {
+  excelJsModule ??= require("exceljs/dist/exceljs.min.js") as typeof ExcelJSNamespace;
+  return excelJsModule;
+}
 
 type SalePriceInput = {
   purchasePrice: string | number | { toString(): string };
@@ -86,6 +95,7 @@ export async function writeQuoteWorkbook(
   const salePriceColumnIndex = columns.findIndex((column) => column.key === "salePrice") + 1;
   const cartonStartColumnIndex = columns.findIndex((column) => column.key === "ctnLength") + 1;
 
+  const ExcelJS = getExcelJS();
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "quotation-mvp";
   workbook.created = quote.createdAt;
@@ -165,7 +175,7 @@ export async function writeQuoteWorkbook(
     to: `${lastColumnLetter}7`,
   };
 
-  await workbook.xlsx.writeFile(filePath);
+  await saveWorkbook(workbook, filePath);
 }
 
 async function writeTemplatedQuoteWorkbook(
@@ -173,6 +183,7 @@ async function writeTemplatedQuoteWorkbook(
   filePath: string,
   template: QuoteTemplateConfig,
 ): Promise<void> {
+  const ExcelJS = getExcelJS();
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "quotation-mvp";
   workbook.created = model.meta.createdAt;
@@ -200,10 +211,15 @@ async function writeTemplatedQuoteWorkbook(
     to: `${lastColumnLetter}1`,
   };
 
-  await workbook.xlsx.writeFile(filePath);
+  await saveWorkbook(workbook, filePath);
 }
 
-function writeTemplateHeaderRow(sheet: ExcelJS.Worksheet, columns: QuoteTableColumn[]): void {
+async function saveWorkbook(workbook: ExcelJSNamespace.Workbook, filePath: string): Promise<void> {
+  const buffer = await workbook.xlsx.writeBuffer();
+  await writeFile(filePath, Buffer.from(buffer));
+}
+
+function writeTemplateHeaderRow(sheet: ExcelJSNamespace.Worksheet, columns: QuoteTableColumn[]): void {
   sheet.getRow(1).height = 24;
   columns.forEach((column, index) => {
     const cell = sheet.getRow(1).getCell(index + 1);
@@ -215,7 +231,7 @@ function writeTemplateHeaderRow(sheet: ExcelJS.Worksheet, columns: QuoteTableCol
   });
 }
 
-function applyDataRowStyle(row: ExcelJS.Row, priceColumnIndex: number, priceNumFmt?: string): void {
+function applyDataRowStyle(row: ExcelJSNamespace.Row, priceColumnIndex: number, priceNumFmt?: string): void {
   row.height = 22;
   row.eachCell({ includeEmpty: true }, (cell) => {
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
@@ -241,7 +257,7 @@ function findCategoryTemplate(quote: QuoteWorkbookData): QuoteTemplateConfig | n
 }
 
 function writeHeaderRows(
-  sheet: ExcelJS.Worksheet,
+  sheet: ExcelJSNamespace.Worksheet,
   columns: QuoteTableColumn[],
   cartonStartColumnIndex: number,
 ): void {
@@ -298,7 +314,7 @@ function normalizeCurrency(value: string): string {
   return value.trim().toUpperCase();
 }
 
-function thinBorder(): Partial<ExcelJS.Borders> {
+function thinBorder(): Partial<ExcelJSNamespace.Borders> {
   return {
     top: { style: "thin", color: { argb: "FFD8D1C2" } },
     left: { style: "thin", color: { argb: "FFD8D1C2" } },

@@ -1,7 +1,6 @@
 import { buildProductDetailsFromParams, type ProductDetailsParam } from "./product-details-builder";
 import { checkQuoteItemHealth, type CategorizedWarning, type WarningTier } from "./quote-health";
-import { getTemplate, type QuoteTemplateColumn, type QuoteTemplateConfig, type QuoteTemplateItem } from "./quote-templates";
-import type { QuoteWorkbookData, QuoteWorkbookItem } from "./quote-export";
+import { getTemplate, type QuoteTemplateColumn, type QuoteTemplateConfig, type QuoteTemplateItem } from "./quote-template-registry";
 
 export type QuoteCellValue = string | number | null;
 
@@ -33,6 +32,37 @@ export type QuoteTableModel = {
   };
   columns: QuoteTableColumn[];
   rows: QuoteTableRow[];
+};
+
+type QuoteTableSourceData = {
+  customerName: string;
+  currency: string;
+  profitMargin: string | number | { toString(): string };
+  exchangeRate: string | number | { toString(): string } | null;
+  createdAt: Date;
+  items: QuoteTableSourceItem[];
+};
+
+type QuoteTableSourceItem = {
+  productId?: string;
+  supplierOfferId?: string;
+  productName: string;
+  category?: string | null;
+  modelNo: string | null;
+  factoryName: string;
+  purchasePrice: string | number | { toString(): string };
+  purchaseCurrency: string;
+  salePrice: string | number | { toString(): string };
+  moq: string | null;
+  ctnQty: string | null;
+  ctnLength: string | null;
+  ctnWidth: string | null;
+  ctnHeight: string | null;
+  material: string | null;
+  size: string | null;
+  productRemark: string | null;
+  productParams?: ProductDetailsParam[];
+  remark: string | null;
 };
 
 const SIZE_PARAM_KEYS = new Set(["size_display", "length_mm", "width_mm", "height_mm"]);
@@ -72,7 +102,7 @@ const TEMPLATE_IDS_BY_CATEGORY: Record<string, string> = {
 };
 
 export function buildQuoteTableModel(
-  quote: QuoteWorkbookData,
+  quote: QuoteTableSourceData,
   options: { customerMode: boolean },
 ): QuoteTableModel {
   const customerMode = options.customerMode !== false;
@@ -122,7 +152,7 @@ export function buildTierCounts(rows: QuoteTableRow[]): Record<WarningTier, numb
 }
 
 export function buildGenericRowCells(
-  item: QuoteWorkbookItem,
+  item: QuoteTableSourceItem,
   customerMode: boolean,
 ): Record<string, QuoteCellValue> {
   const cells: Record<string, QuoteCellValue> = {
@@ -146,7 +176,7 @@ export function buildGenericRowCells(
   return cells;
 }
 
-export function buildTemplateItem(item: QuoteWorkbookItem, currency: string): QuoteTemplateItem {
+export function buildTemplateItem(item: QuoteTableSourceItem, currency: string): QuoteTemplateItem {
   return {
     productName: item.productName,
     modelNo: item.modelNo,
@@ -165,7 +195,7 @@ export function buildTemplateItem(item: QuoteWorkbookItem, currency: string): Qu
   };
 }
 
-export function buildProductDetails(item: QuoteWorkbookItem): string {
+export function buildProductDetails(item: QuoteTableSourceItem): string {
   if (item.productParams && item.productParams.length > 0) {
     const paramDetails = buildProductDetailsFromParams(item.productParams);
     if (paramDetails) {
@@ -266,7 +296,7 @@ function buildGenericColumns(currency: string, customerMode: boolean): QuoteTabl
   }
 
   columns.push(
-    { key: "salePrice", header: `Unit Price (${currency})`, width: 16, align: "right", numFmt: priceFormat(currency) },
+    { key: "salePrice", header: "Unit Price", width: 16, align: "right", numFmt: priceFormat(currency) },
     { key: "moq", header: "MOQ", width: 12, align: "center" },
     { key: "ctnQty", header: "CTN Qty", width: 12, align: "center" },
     { key: "ctnLength", header: "L", width: 10, align: "center" },
@@ -281,7 +311,7 @@ function buildGenericColumns(currency: string, customerMode: boolean): QuoteTabl
 
 function buildTemplateRowCells(
   template: QuoteTemplateConfig,
-  item: QuoteWorkbookItem,
+  item: QuoteTableSourceItem,
   currency: string,
   index: number,
   customerMode: boolean,
@@ -294,7 +324,7 @@ function buildTemplateRowCells(
   return cells;
 }
 
-function buildQuoteTableWarnings(item: QuoteWorkbookItem): CategorizedWarning[] {
+function buildQuoteTableWarnings(item: QuoteTableSourceItem): CategorizedWarning[] {
   const productDetails = buildProductDetails(item);
   const healthWarnings = checkQuoteItemHealth(
     {
@@ -339,9 +369,17 @@ function buildProductDetailsWarnings(productDetails: string): CategorizedWarning
 function toTableColumn(column: QuoteTemplateColumn, currency: string): QuoteTableColumn {
   return {
     ...column,
+    header: normalizeTemplateHeader(column.header),
     align: column.key === "modelNo" ? "left" : column.key === "salePrice" ? "right" : "center",
     numFmt: column.key === "salePrice" ? priceFormat(currency) : undefined,
   };
+}
+
+function normalizeTemplateHeader(header: string): string {
+  return header
+    .replace(/\s*\((?:USD|PCS|cm|mm|m³)\)\s*/gi, "")
+    .replace(/^Packing Volume$/i, "Volume")
+    .trim();
 }
 
 function insertColumnAfter(
@@ -368,7 +406,7 @@ function insertColumnBefore(
   return [...columns.slice(0, index), column, ...columns.slice(index)];
 }
 
-function findCategoryTemplate(quote: QuoteWorkbookData): QuoteTemplateConfig | null {
+function findCategoryTemplate(quote: QuoteTableSourceData): QuoteTemplateConfig | null {
   const itemCategories = quote.items.map((item) => item.category?.trim() ?? "");
   if (itemCategories.length === 0 || itemCategories.some((category) => !category)) {
     return null;
@@ -397,12 +435,12 @@ function hasStructuredSizeParam(params: ProductDetailsParam[]): boolean {
   return params.some((param) => SIZE_PARAM_KEYS.has(param.paramKey) && Boolean(param.normalizedValue?.trim()));
 }
 
-function buildPurchaseCurrencyLabel(items: QuoteWorkbookItem[]): string {
+function buildPurchaseCurrencyLabel(items: QuoteTableSourceItem[]): string {
   const currencies = Array.from(new Set(items.map((item) => normalizeCurrency(item.purchaseCurrency)).filter(Boolean)));
   return currencies.length === 1 ? currencies[0] : currencies.join("/") || "采购币种";
 }
 
-function formatPurchasePrice(item: QuoteWorkbookItem): string {
+function formatPurchasePrice(item: QuoteTableSourceItem): string {
   return `${readWorkbookNumber(item.purchasePrice).toFixed(2)} ${item.purchaseCurrency}`;
 }
 
