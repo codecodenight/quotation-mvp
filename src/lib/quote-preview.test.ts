@@ -92,6 +92,7 @@ describe("buildQuotePreview", () => {
       },
     });
     expect(preview.columns.map((column) => column.key)).toEqual([
+      "image",
       "modelNo",
       "productDetails",
       "salePrice",
