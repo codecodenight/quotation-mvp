@@ -22,3 +22,8 @@ outputs/
 tsconfig.tsbuildinfo
 /generated/prisma
 data/source-archive/
+
+# Deployment
+logs/
+*.log
+deploy/.htpasswd

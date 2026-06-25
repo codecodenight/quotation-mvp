@@ -15,6 +15,17 @@ import {
   type ChatQuoteGenerateResult,
 } from "./actions";
 import { getToolResultLabel } from "./tool-result-labels";
+import {
+  loadDraftItems,
+  loadMessages,
+  loadSettings,
+  saveDraftItems,
+  saveMessages,
+  saveSettings,
+  type DraftItem,
+  type QuoteSettings,
+  type StoredMessage,
+} from "@/lib/chat-storage";
 import type {
   ChatMessageInput,
   ChatProductCard,
@@ -35,30 +46,16 @@ type ChatMessage = {
   toolCalls: ToolCallRecord[];
 };
 
-type DraftItem = {
-  productId: string;
-  productName: string;
-  modelNo: string | null;
-  category: string | null;
-  offerId: string;
-  factoryName: string;
-  purchasePrice: string;
-  currency: string;
-  moq: string | null;
-  quantity: number;
-  remark: string;
-};
-
-type QuoteSettings = {
-  customerName: string;
-  profitMargin: string;
-  currency: string;
-  exchangeRate: string;
-  customerMode: boolean;
-};
-
 const starterPrompts = ["面板灯 36W", "投光灯 100W 最便宜", "上次给 HTF 报的面板灯", "面板灯 48W 有哪些工厂"];
 const TOOL_CONTEXT_LIMIT = 3;
+const WELCOME_MESSAGE_TEXT = "你可以直接问产品、价格、工厂对比或历史报价。我会查本地报价库，不会编造数据。";
+const DEFAULT_QUOTE_SETTINGS: QuoteSettings = {
+  customerName: "",
+  profitMargin: "0.2",
+  currency: "USD",
+  exchangeRate: "7.2",
+  customerMode: true,
+};
 const CHAT_WARNING_TIER_ORDER = ["customer", "quote", "logistics"] as const;
 const CHAT_WARNING_TIER_META: Record<
   (typeof CHAT_WARNING_TIER_ORDER)[number],
@@ -69,32 +66,56 @@ const CHAT_WARNING_TIER_META: Record<
   logistics: { label: "物流缺失", badgeClass: "border-stone-300 bg-stone-50 text-stone-700" },
 };
 
+function createWelcomeMessage(): ChatMessage {
+  return {
+    id: "welcome",
+    role: "assistant",
+    text: WELCOME_MESSAGE_TEXT,
+    toolResults: [],
+    toolCalls: [],
+  };
+}
+
 export function ChatClient() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "你可以直接问产品、价格、工厂对比或历史报价。我会查本地报价库，不会编造数据。",
-      toolResults: [],
-      toolCalls: [],
-    },
-  ]);
-  const [input, setInput] = useState("");
-  const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
-  const [isDraftOpen, setIsDraftOpen] = useState(false);
-  const [settings, setSettings] = useState<QuoteSettings>({
-    customerName: "",
-    profitMargin: "0.2",
-    currency: "USD",
-    exchangeRate: "7.2",
-    customerMode: true,
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const stored = loadMessages();
+    const welcome = createWelcomeMessage();
+    if (stored.length === 0) {
+      return [welcome];
+    }
+    return [welcome, ...stored.map((message) => ({ ...message, toolResults: [] }))];
   });
+  const [input, setInput] = useState("");
+  const [draftItems, setDraftItems] = useState<DraftItem[]>(() => loadDraftItems());
+  const [isDraftOpen, setIsDraftOpen] = useState(false);
+  const [settings, setSettings] = useState<QuoteSettings>(() => loadSettings() ?? DEFAULT_QUOTE_SETTINGS);
   const [draftPreview, setDraftPreview] = useState<QuotePreviewData | null>(null);
   const [quoteResult, setQuoteResult] = useState<ChatQuoteGenerateResult | null>(null);
   const [queryStartTime, setQueryStartTime] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isGeneratingQuote, startQuoteTransition] = useTransition();
   const [isPreviewingDraft, startDraftPreviewTransition] = useTransition();
+
+  useEffect(() => {
+    const toStore: StoredMessage[] = messages
+      .filter((message) => message.id !== "welcome")
+      .slice(-50)
+      .map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.text,
+        toolCalls: message.toolCalls,
+      }));
+    saveMessages(toStore);
+  }, [messages]);
+
+  useEffect(() => {
+    saveDraftItems(draftItems);
+  }, [draftItems]);
+
+  useEffect(() => {
+    saveSettings(settings);
+  }, [settings]);
 
   const compactHistory = useMemo<ChatMessageInput[]>(() => {
     const history = messages.filter((message) => message.id !== "welcome").slice(-10);
@@ -253,6 +274,15 @@ export function ChatClient() {
     setQuoteResult(null);
   }
 
+  function clearMessages() {
+    setMessages([createWelcomeMessage()]);
+  }
+
+  function clearDraftItems() {
+    setDraftItems([]);
+    clearDraftPreview();
+  }
+
   function buildCurrentDraftInput() {
     return {
       customerName: settings.customerName.trim() || "Chat Quote",
@@ -349,14 +379,24 @@ export function ChatClient() {
               <div className="text-xs text-stone-500">本地产品库 / 工厂报价 / 历史客户价</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsDraftOpen((value) => !value)}
-            className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold shadow-panel hover:border-leaf"
-          >
-            <FileSpreadsheet size={17} />
-            报价草稿 ({draftItems.length})
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={clearMessages}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-2 text-sm text-muted hover:border-red-300 hover:text-red-600"
+            >
+              <Trash2 size={16} />
+              清空对话
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDraftOpen((value) => !value)}
+              className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold shadow-panel hover:border-leaf"
+            >
+              <FileSpreadsheet size={17} />
+              报价草稿 ({draftItems.length})
+            </button>
+          </div>
         </header>
 
         <section className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -433,6 +473,7 @@ export function ChatClient() {
           onRemove={removeDraftItem}
           onUpdate={updateDraftItem}
           onSettingsChange={updateQuoteSettings}
+          onClearDraft={clearDraftItems}
           onPreview={previewDraft}
           onGenerate={generateQuote}
         />
@@ -763,6 +804,7 @@ function QuoteDraftPanel({
   onRemove,
   onUpdate,
   onSettingsChange,
+  onClearDraft,
   onPreview,
   onGenerate,
 }: {
@@ -776,6 +818,7 @@ function QuoteDraftPanel({
   onRemove: (productId: string) => void;
   onUpdate: (productId: string, patch: Partial<DraftItem>) => void;
   onSettingsChange: (settings: QuoteSettings) => void;
+  onClearDraft: () => void;
   onPreview: () => void;
   onGenerate: () => void;
 }) {
@@ -904,6 +947,11 @@ function QuoteDraftPanel({
             >
               下载 Excel / {quoteResult.itemCount} 项 / {quoteResult.totalSaleAmount} {settings.currency}
             </a>
+          ) : null}
+          {items.length > 0 ? (
+            <button type="button" onClick={onClearDraft} className="justify-self-start text-xs text-muted hover:text-red-600">
+              清空草稿
+            </button>
           ) : null}
         </div>
       </footer>
