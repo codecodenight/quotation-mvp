@@ -8,6 +8,7 @@ import type {
 import { createQuote, previewQuote } from "@/app/(admin)/quotes/actions";
 import { CHAT_TOOL_DEFINITIONS, buildChatQuoteFormData, executeChatTool, type ChatQuoteDraftInput, type ChatToolResult } from "@/lib/chat-tools";
 import { CHAT_SYSTEM_PROMPT, DEEPSEEK_MODEL, getDeepSeekClient } from "@/lib/deepseek";
+import type { QuotePreviewData } from "@/lib/quote-preview";
 
 export type ChatMessageInput = {
   role: "user" | "assistant";
@@ -113,6 +114,10 @@ export async function sendChatMessage(
 
 export async function getProductOffersForChat(productId: string): Promise<ChatToolResult> {
   return executeChatTool("get_product_offers", { product_id: productId });
+}
+
+export async function previewChatDraft(input: ChatQuoteDraftInput): Promise<QuotePreviewData> {
+  return previewQuote(buildChatQuoteFormData(input));
 }
 
 export async function generateQuoteFromChatDraft(input: ChatQuoteDraftInput): Promise<ChatQuoteGenerateResult> {

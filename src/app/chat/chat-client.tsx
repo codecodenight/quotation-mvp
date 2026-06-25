@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import {
   generateQuoteFromChatDraft,
   getProductOffersForChat,
+  previewChatDraft,
   sendChatMessage,
   type AssistantChatResponse,
   type ChatQuoteGenerateResult,
@@ -22,6 +23,7 @@ import type {
   FactoryComparisonResult,
   CustomerHistoryResult,
 } from "@/lib/chat-tools";
+import type { QuotePreviewData, QuotePreviewRow } from "@/lib/quote-preview";
 
 type ChatMessage = {
   id: string;
@@ -49,9 +51,19 @@ type QuoteSettings = {
   profitMargin: string;
   currency: string;
   exchangeRate: string;
+  customerMode: boolean;
 };
 
 const starterPrompts = ["面板灯 36W", "投光灯 100W 最便宜", "上次给 HTF 报的面板灯", "面板灯 48W 有哪些工厂"];
+const CHAT_WARNING_TIER_ORDER = ["customer", "quote", "logistics"] as const;
+const CHAT_WARNING_TIER_META: Record<
+  (typeof CHAT_WARNING_TIER_ORDER)[number],
+  { label: string; badgeClass: string }
+> = {
+  customer: { label: "客户可见", badgeClass: "border-red-200 bg-red-50 text-red-800" },
+  quote: { label: "报价风险", badgeClass: "border-amber-200 bg-amber-50 text-amber-800" },
+  logistics: { label: "物流缺失", badgeClass: "border-stone-300 bg-stone-50 text-stone-700" },
+};
 
 export function ChatClient() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -70,11 +82,14 @@ export function ChatClient() {
     profitMargin: "0.2",
     currency: "USD",
     exchangeRate: "7.2",
+    customerMode: true,
   });
+  const [draftPreview, setDraftPreview] = useState<QuotePreviewData | null>(null);
   const [quoteResult, setQuoteResult] = useState<ChatQuoteGenerateResult | null>(null);
   const [queryStartTime, setQueryStartTime] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isGeneratingQuote, startQuoteTransition] = useTransition();
+  const [isPreviewingDraft, startDraftPreviewTransition] = useTransition();
 
   const compactHistory = useMemo(
     () =>
@@ -125,6 +140,7 @@ export function ChatClient() {
     if (!offer) {
       return;
     }
+    clearDraftPreview();
     setDraftItems((current) => {
       const withoutDuplicate = current.filter((item) => item.productId !== product.id);
       return [
@@ -197,33 +213,79 @@ export function ChatClient() {
   }
 
   function updateDraftItem(productId: string, patch: Partial<DraftItem>) {
+    clearDraftPreview();
     setDraftItems((current) => current.map((item) => (item.productId === productId ? { ...item, ...patch } : item)));
   }
 
   function removeDraftItem(productId: string) {
+    clearDraftPreview();
     setDraftItems((current) => current.filter((item) => item.productId !== productId));
+  }
+
+  function updateQuoteSettings(nextSettings: QuoteSettings) {
+    clearDraftPreview();
+    setSettings(nextSettings);
+  }
+
+  function clearDraftPreview() {
+    setDraftPreview(null);
+    setQuoteResult(null);
+  }
+
+  function buildCurrentDraftInput() {
+    return {
+      customerName: settings.customerName.trim() || "Chat Quote",
+      profitMargin: settings.profitMargin,
+      currency: settings.currency,
+      exchangeRate: settings.exchangeRate,
+      customerMode: settings.customerMode,
+      items: draftItems.map((item) => ({
+        productId: item.productId,
+        offerId: item.offerId,
+        quantity: item.quantity,
+        remark: item.remark,
+      })),
+    };
+  }
+
+  function previewDraft() {
+    if (draftItems.length === 0 || isPreviewingDraft) {
+      return;
+    }
+    setQuoteResult(null);
+    startDraftPreviewTransition(async () => {
+      try {
+        const preview = await previewChatDraft(buildCurrentDraftInput());
+        setDraftPreview(preview);
+      } catch (error) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: error instanceof Error ? error.message : "预览报价失败。",
+            toolResults: [],
+          },
+        ]);
+      }
+    });
   }
 
   function generateQuote() {
     if (draftItems.length === 0 || isGeneratingQuote) {
       return;
     }
+    if (!draftPreview) {
+      previewDraft();
+      return;
+    }
+    if (!confirmSuspiciousLowChatExport(draftPreview)) {
+      return;
+    }
     setQuoteResult(null);
     startQuoteTransition(async () => {
       try {
-        const result = await generateQuoteFromChatDraft({
-          customerName: settings.customerName.trim() || "Chat Quote",
-          profitMargin: settings.profitMargin,
-          currency: settings.currency,
-          exchangeRate: settings.exchangeRate,
-          customerMode: true,
-          items: draftItems.map((item) => ({
-            productId: item.productId,
-            offerId: item.offerId,
-            quantity: item.quantity,
-            remark: item.remark,
-          })),
-        });
+        const result = await generateQuoteFromChatDraft(buildCurrentDraftInput());
         setQuoteResult(result);
       } catch (error) {
         setMessages((current) => [
@@ -340,12 +402,15 @@ export function ChatClient() {
         <QuoteDraftPanel
           items={draftItems}
           settings={settings}
+          preview={draftPreview}
           quoteResult={quoteResult}
           isGenerating={isGeneratingQuote}
+          isPreviewing={isPreviewingDraft}
           onClose={() => setIsDraftOpen(false)}
           onRemove={removeDraftItem}
           onUpdate={updateDraftItem}
-          onSettingsChange={setSettings}
+          onSettingsChange={updateQuoteSettings}
+          onPreview={previewDraft}
           onGenerate={generateQuote}
         />
       ) : null}
@@ -667,22 +732,28 @@ function FactoryComparisonCard({ result }: { result: FactoryComparisonResult }) 
 function QuoteDraftPanel({
   items,
   settings,
+  preview,
   quoteResult,
   isGenerating,
+  isPreviewing,
   onClose,
   onRemove,
   onUpdate,
   onSettingsChange,
+  onPreview,
   onGenerate,
 }: {
   items: DraftItem[];
   settings: QuoteSettings;
+  preview: QuotePreviewData | null;
   quoteResult: ChatQuoteGenerateResult | null;
   isGenerating: boolean;
+  isPreviewing: boolean;
   onClose: () => void;
   onRemove: (productId: string) => void;
   onUpdate: (productId: string, patch: Partial<DraftItem>) => void;
   onSettingsChange: (settings: QuoteSettings) => void;
+  onPreview: () => void;
   onGenerate: () => void;
 }) {
   return (
@@ -761,15 +832,48 @@ function QuoteDraftPanel({
               className={draftInputClass}
             />
           </div>
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={items.length === 0 || isGenerating}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-ink text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {isGenerating ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
-            生成报价单
-          </button>
+          <label className="flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-stone-700">
+            <input
+              type="checkbox"
+              checked={!settings.customerMode}
+              onChange={(event) => onSettingsChange({ ...settings, customerMode: !event.target.checked })}
+              className="h-4 w-4 accent-leaf"
+            />
+            内部模式（显示工厂名和采购价）
+          </label>
+          {preview ? <ChatDraftPreview preview={preview} /> : null}
+          {!preview ? (
+            <button
+              type="button"
+              onClick={onPreview}
+              disabled={items.length === 0 || isPreviewing}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-ink text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {isPreviewing ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
+              预览报价
+            </button>
+          ) : (
+            <div className="grid grid-cols-[1fr_1fr] gap-2">
+              <button
+                type="button"
+                onClick={onPreview}
+                disabled={items.length === 0 || isPreviewing}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-semibold text-stone-700 disabled:opacity-50"
+              >
+                {isPreviewing ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
+                重新预览
+              </button>
+              <button
+                type="button"
+                onClick={onGenerate}
+                disabled={items.length === 0 || isGenerating}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-ink text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isGenerating ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
+                生成报价单
+              </button>
+            </div>
+          )}
           {quoteResult ? (
             <a
               href={quoteResult.downloadUrl}
@@ -782,6 +886,125 @@ function QuoteDraftPanel({
       </footer>
     </aside>
   );
+}
+
+function ChatDraftPreview({ preview }: { preview: QuotePreviewData }) {
+  const warningRows = preview.rows.filter((row) => row.warnings.length > 0);
+
+  return (
+    <div className="rounded-md border border-line bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+        <div className="text-sm font-semibold text-ink">报价预览</div>
+        <ChatPreviewWarningBadges preview={preview} />
+      </div>
+      <div className="max-h-80 overflow-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead className="sticky top-0 bg-stone-100 text-stone-700">
+            <tr>
+              {preview.columns.map((column) => (
+                <th key={column.key} className="whitespace-nowrap border-b border-line px-2 py-2 text-center font-semibold">
+                  {column.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {preview.rows.map((row) => (
+              <tr key={`${row.productId}:${row.supplierOfferId}`} className={row.warnings.length > 0 ? "bg-amber-50" : ""}>
+                {preview.columns.map((column) => (
+                  <td key={column.key} className={getChatPreviewCellClass(column)}>
+                    {formatChatPreviewCell(row.cells[column.key], column, row)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {warningRows.length > 0 ? <ChatPreviewWarningList rows={warningRows} /> : null}
+    </div>
+  );
+}
+
+function ChatPreviewWarningBadges({ preview }: { preview: QuotePreviewData }) {
+  if (preview.totalWarnings === 0) {
+    return <span className="rounded border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">无警告</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {CHAT_WARNING_TIER_ORDER.map((tier) =>
+        preview.tierCounts[tier] > 0 ? (
+          <span key={tier} className={`rounded border px-2 py-1 text-xs font-semibold ${CHAT_WARNING_TIER_META[tier].badgeClass}`}>
+            {CHAT_WARNING_TIER_META[tier].label} {preview.tierCounts[tier]}
+          </span>
+        ) : null,
+      )}
+    </div>
+  );
+}
+
+function ChatPreviewWarningList({ rows }: { rows: QuotePreviewRow[] }) {
+  return (
+    <div className="space-y-1 border-t border-line bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      {rows.map((row) => (
+        <div key={`${row.productId}:${row.supplierOfferId}:warnings`}>
+          {row.warnings.map((warning) => (
+            <div key={`${row.productId}:${warning.tier}:${warning.message}`}>
+              {CHAT_WARNING_TIER_META[warning.tier].label}: {warning.message}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getChatPreviewCellClass(column: QuotePreviewData["columns"][number]): string {
+  const alignment = column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left";
+  const whitespace = column.key === "productDetails" ? "whitespace-pre-line" : "whitespace-nowrap";
+  const width = column.key === "productDetails" ? "min-w-52 max-w-72" : column.key === "image" ? "w-16 min-w-16" : "";
+  return `border-t border-line px-2 py-2 align-middle text-stone-700 ${alignment} ${whitespace} ${width}`.trim();
+}
+
+function formatChatPreviewCell(
+  value: unknown,
+  column: QuotePreviewData["columns"][number],
+  row: QuotePreviewRow,
+): ReactNode {
+  if (column.key === "image") {
+    if (!value || typeof value !== "string") {
+      return "-";
+    }
+    return (
+      <Image
+        src={`/api/products/${row.productId}/image`}
+        alt=""
+        width={48}
+        height={48}
+        className="mx-auto h-12 w-12 rounded-sm border border-line object-contain"
+      />
+    );
+  }
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "number") {
+    const currency = column.numFmt?.match(/"([^"]+)"/)?.[1];
+    return currency ? `${value.toFixed(2)} ${currency}` : String(value);
+  }
+  return String(value);
+}
+
+function confirmSuspiciousLowChatExport(preview: QuotePreviewData): boolean {
+  const suspiciousLowCount = preview.rows.reduce(
+    (count, row) => count + row.warnings.filter((warning) => warning.message.includes("suspicious_low")).length,
+    0,
+  );
+  if (suspiciousLowCount === 0) {
+    return true;
+  }
+  return window.confirm(`报价单包含 ${suspiciousLowCount} 个采购价异常偏低的产品。\n确认继续生成吗？`);
 }
 
 function ProductThumb({ product }: { product: ChatProductCard }) {

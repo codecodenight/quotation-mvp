@@ -157,4 +157,23 @@ describe("chat tool helpers", () => {
     expect(formData.get("quantity:product-1")).toBe("2");
     expect(formData.get("remark:product-1")).toBe("sample");
   });
+
+  it("defaults chat quote FormData to customer mode when omitted", () => {
+    const draft = {
+      customerName: "Test Customer",
+      profitMargin: "0.2",
+      currency: "USD",
+      exchangeRate: "7.2",
+      items: [
+        {
+          productId: "product-1",
+          offerId: "offer-1",
+          quantity: 2,
+          remark: "sample",
+        },
+      ],
+    } as ChatQuoteDraftInput;
+
+    expect(buildChatQuoteFormData(draft).get("customerMode")).toBe("on");
+  });
 });

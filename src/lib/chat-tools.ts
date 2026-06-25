@@ -96,7 +96,7 @@ export type ChatQuoteDraftInput = {
   profitMargin: string;
   currency: string;
   exchangeRate: string;
-  customerMode: boolean;
+  customerMode?: boolean;
   items: Array<{
     productId: string;
     offerId: string;
@@ -443,7 +443,7 @@ export function buildChatQuoteFormData(input: ChatQuoteDraftInput): FormData {
   formData.set("profitMargin", input.profitMargin);
   formData.set("currency", input.currency);
   formData.set("exchangeRate", input.exchangeRate);
-  if (input.customerMode) {
+  if (input.customerMode !== false) {
     formData.set("customerMode", "on");
   }
 
