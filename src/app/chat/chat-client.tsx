@@ -16,12 +16,14 @@ import {
 } from "./actions";
 import { getToolResultLabel } from "./tool-result-labels";
 import type {
+  ChatMessageInput,
   ChatProductCard,
   ChatToolResult,
   ProductOffersResult,
   SearchProductsResult,
   FactoryComparisonResult,
   CustomerHistoryResult,
+  ToolCallRecord,
 } from "@/lib/chat-tools";
 import type { QuotePreviewData, QuotePreviewRow } from "@/lib/quote-preview";
 
@@ -30,6 +32,7 @@ type ChatMessage = {
   role: "user" | "assistant";
   text: string;
   toolResults: ChatToolResult[];
+  toolCalls: ToolCallRecord[];
 };
 
 type DraftItem = {
@@ -55,6 +58,7 @@ type QuoteSettings = {
 };
 
 const starterPrompts = ["面板灯 36W", "投光灯 100W 最便宜", "上次给 HTF 报的面板灯", "面板灯 48W 有哪些工厂"];
+const TOOL_CONTEXT_LIMIT = 3;
 const CHAT_WARNING_TIER_ORDER = ["customer", "quote", "logistics"] as const;
 const CHAT_WARNING_TIER_META: Record<
   (typeof CHAT_WARNING_TIER_ORDER)[number],
@@ -72,6 +76,7 @@ export function ChatClient() {
       role: "assistant",
       text: "你可以直接问产品、价格、工厂对比或历史报价。我会查本地报价库，不会编造数据。",
       toolResults: [],
+      toolCalls: [],
     },
   ]);
   const [input, setInput] = useState("");
@@ -91,14 +96,27 @@ export function ChatClient() {
   const [isGeneratingQuote, startQuoteTransition] = useTransition();
   const [isPreviewingDraft, startDraftPreviewTransition] = useTransition();
 
-  const compactHistory = useMemo(
-    () =>
-      messages
-        .filter((message) => message.id !== "welcome")
-        .map((message) => ({ role: message.role, text: message.text }))
-        .slice(-8),
-    [messages],
-  );
+  const compactHistory = useMemo<ChatMessageInput[]>(() => {
+    const history = messages.filter((message) => message.id !== "welcome").slice(-10);
+    const toolContextIds = new Set<string>();
+    let assistantWithToolCount = 0;
+
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const message = history[index];
+      if (message.role === "assistant" && message.toolCalls.length > 0) {
+        if (assistantWithToolCount < TOOL_CONTEXT_LIMIT) {
+          toolContextIds.add(message.id);
+          assistantWithToolCount += 1;
+        }
+      }
+    }
+
+    return history.map((message) => ({
+      role: message.role,
+      text: message.text,
+      toolCalls: toolContextIds.has(message.id) ? message.toolCalls : undefined,
+    }));
+  }, [messages]);
 
   function submitMessage(event?: FormEvent<HTMLFormElement>, override?: string) {
     event?.preventDefault();
@@ -114,6 +132,7 @@ export function ChatClient() {
       role: "user",
       text,
       toolResults: [],
+      toolCalls: [],
     };
     setMessages((current) => [...current, userMessage]);
 
@@ -132,6 +151,7 @@ export function ChatClient() {
         role: "assistant",
         text: response.text,
         toolResults: response.toolResults,
+        toolCalls: response.toolCalls,
       },
     ]);
   }
@@ -207,6 +227,7 @@ export function ChatClient() {
           role: "assistant",
           text: "这个产品的供应商报价如下。",
           toolResults: [result],
+          toolCalls: [],
         },
       ]);
     });
@@ -265,6 +286,7 @@ export function ChatClient() {
             role: "assistant",
             text: error instanceof Error ? error.message : "预览报价失败。",
             toolResults: [],
+            toolCalls: [],
           },
         ]);
       }
@@ -295,6 +317,7 @@ export function ChatClient() {
             role: "assistant",
             text: error instanceof Error ? error.message : "生成报价单失败。",
             toolResults: [],
+            toolCalls: [],
           },
         ]);
       }

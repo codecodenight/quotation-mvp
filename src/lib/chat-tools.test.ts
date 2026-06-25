@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildChatQuoteFormData,
   clampToolLimit,
+  compactForLLM,
+  expandHistoryMessages,
   formatCartonDimensions,
   isWattageOnlyModel,
   normalizeToolText,
@@ -11,6 +13,9 @@ import {
   serializeChatProductOffer,
   toDisplayParams,
   type ChatQuoteDraftInput,
+  type ChatMessageInput,
+  type ProductOffersResult,
+  type SearchProductsResult,
 } from "./chat-tools";
 
 describe("chat tool helpers", () => {
@@ -176,4 +181,239 @@ describe("chat tool helpers", () => {
 
     expect(buildChatQuoteFormData(draft).get("customerMode")).toBe("on");
   });
+
+  it("compacts search product results to the fields needed by the LLM", () => {
+    const result: SearchProductsResult = {
+      total: 1,
+      products: [
+        {
+          id: "product-1",
+          model_no: "DL-10W",
+          product_name: "10W Downlight",
+          category: "筒灯",
+          image_path: "/images/product-1.jpg",
+          offer_count: 2,
+          recommended_offer: {
+            id: "offer-1",
+            factory_name: "Factory A",
+            purchase_price: "12.50",
+            currency: "RMB",
+            moq: "100",
+            price_flag: null,
+            source_file_id: "file-1",
+            source_file_name: "factory-a.xlsx",
+          },
+          params: [{ key: "watts", value: "10", unit: "W" }],
+        },
+      ],
+    };
+
+    expect(compactForLLM("search_products", result)).toEqual({
+      total: 1,
+      products: [
+        {
+          id: "product-1",
+          model_no: "DL-10W",
+          product_name: "10W Downlight",
+          category: "筒灯",
+          offer_count: 2,
+          recommended_offer: {
+            id: "offer-1",
+            factory_name: "Factory A",
+            purchase_price: "12.50",
+            currency: "RMB",
+            moq: "100",
+            price_flag: null,
+          },
+          params: [{ key: "watts", value: "10", unit: "W" }],
+        },
+      ],
+    });
+  });
+
+  it("removes image paths from compact search product results", () => {
+    const result: SearchProductsResult = {
+      total: 1,
+      products: [
+        {
+          id: "product-1",
+          model_no: "DL-10W",
+          product_name: "10W Downlight",
+          category: "筒灯",
+          image_path: "/images/product-1.jpg",
+          offer_count: 1,
+          recommended_offer: null,
+          params: [],
+        },
+      ],
+    };
+
+    expect(JSON.stringify(compactForLLM("search_products", result))).not.toContain("image_path");
+  });
+
+  it("limits compact product offers to the first five offers", () => {
+    const result = buildProductOffersResult(8);
+    const compacted = compactForLLM("get_product_offers", result) as ProductOffersResult;
+
+    expect(compacted.offers.map((offer) => offer.id)).toEqual([
+      "offer-1",
+      "offer-2",
+      "offer-3",
+      "offer-4",
+      "offer-5",
+    ]);
+  });
+
+  it("removes logistics and UI-only fields from compact product offers", () => {
+    const result = buildProductOffersResult(1);
+    const compactedJson = JSON.stringify(compactForLLM("get_product_offers", result));
+
+    expect(compactedJson).not.toContain("ctn_dimensions");
+    expect(compactedJson).not.toContain("lead_time");
+    expect(compactedJson).not.toContain("badges");
+    expect(compactedJson).not.toContain("price_updated_at");
+    expect(compactedJson).not.toContain("source_file_id");
+    expect(compactedJson).not.toContain("source_file_name");
+  });
+
+  it("leaves compact factory comparison results unchanged", () => {
+    const result = {
+      category: "筒灯",
+      comparison: [{ factory_name: "Factory A", product_count: 3 }],
+    };
+
+    expect(compactForLLM("compare_factories", result)).toBe(result);
+  });
+
+  it("leaves compact customer history results unchanged", () => {
+    const result = {
+      total: 1,
+      rows: [{ raw_model: "DL-10W", sale_price_usd: 2.5 }],
+    };
+
+    expect(compactForLLM("search_customer_history", result)).toBe(result);
+  });
+
+  it("expands user history messages to OpenAI user messages", () => {
+    expect(expandHistoryMessages([{ role: "user", text: "面板灯 36W" }])).toEqual([
+      { role: "user", content: "面板灯 36W" },
+    ]);
+  });
+
+  it("expands assistant history without tool calls to a text message", () => {
+    expect(expandHistoryMessages([{ role: "assistant", text: "找到 5 款面板灯" }])).toEqual([
+      { role: "assistant", content: "找到 5 款面板灯" },
+    ]);
+  });
+
+  it("expands assistant history with tool calls and compact tool results", () => {
+    const history: ChatMessageInput[] = [
+      {
+        role: "assistant",
+        text: "找到 5 款面板灯",
+        toolCalls: [
+          {
+            id: "tc_1",
+            name: "search_products",
+            arguments: '{"query":"面板灯","min_watts":36,"max_watts":36}',
+            result: '{"total":5,"products":[]}',
+          },
+        ],
+      },
+    ];
+
+    expect(expandHistoryMessages(history)).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "tc_1",
+            type: "function",
+            function: {
+              name: "search_products",
+              arguments: '{"query":"面板灯","min_watts":36,"max_watts":36}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "tc_1",
+        content: '{"total":5,"products":[]}',
+      },
+      { role: "assistant", content: "找到 5 款面板灯" },
+    ]);
+  });
+
+  it("expands mixed history messages in order", () => {
+    const history: ChatMessageInput[] = [
+      { role: "user", text: "面板灯 36W" },
+      {
+        role: "assistant",
+        text: "找到 5 款面板灯",
+        toolCalls: [
+          {
+            id: "tc_1",
+            name: "search_products",
+            arguments: '{"query":"面板灯","min_watts":36,"max_watts":36}',
+            result: '{"total":5,"products":[]}',
+          },
+        ],
+      },
+      { role: "user", text: "最便宜的是哪个" },
+    ];
+
+    expect(expandHistoryMessages(history)).toEqual([
+      { role: "user", content: "面板灯 36W" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "tc_1",
+            type: "function",
+            function: {
+              name: "search_products",
+              arguments: '{"query":"面板灯","min_watts":36,"max_watts":36}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "tc_1",
+        content: '{"total":5,"products":[]}',
+      },
+      { role: "assistant", content: "找到 5 款面板灯" },
+      { role: "user", content: "最便宜的是哪个" },
+    ]);
+  });
 });
+
+function buildProductOffersResult(offerCount: number): ProductOffersResult {
+  return {
+    product_id: "product-1",
+    product_name: "10W Downlight",
+    model_no: "DL-10W",
+    category: "筒灯",
+    image_path: "/images/product-1.jpg",
+    offers: Array.from({ length: offerCount }, (_, index) => ({
+      id: `offer-${index + 1}`,
+      factory_name: `Factory ${index + 1}`,
+      purchase_price: String(10 + index),
+      currency: "RMB",
+      moq: "100",
+      price_flag: null,
+      source_file_id: `file-${index + 1}`,
+      source_file_name: `factory-${index + 1}.xlsx`,
+      ctn_qty: "20",
+      ctn_dimensions: "40×30×20",
+      lead_time: "15 days",
+      price_updated_at: "2026-06-25T00:00:00.000Z",
+      recommendation_score: 100 - index,
+      badges: [],
+    })),
+    params: [{ key: "watts", value: "10", unit: "W" }],
+  };
+}

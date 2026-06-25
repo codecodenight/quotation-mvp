@@ -6,18 +6,24 @@ import type {
 } from "openai/resources/chat/completions";
 
 import { createQuote, previewQuote } from "@/app/(admin)/quotes/actions";
-import { CHAT_TOOL_DEFINITIONS, buildChatQuoteFormData, executeChatTool, type ChatQuoteDraftInput, type ChatToolResult } from "@/lib/chat-tools";
+import {
+  CHAT_TOOL_DEFINITIONS,
+  buildChatQuoteFormData,
+  compactForLLM,
+  executeChatTool,
+  expandHistoryMessages,
+  type ChatMessageInput,
+  type ChatQuoteDraftInput,
+  type ChatToolResult,
+  type ToolCallRecord,
+} from "@/lib/chat-tools";
 import { CHAT_SYSTEM_PROMPT, DEEPSEEK_MODEL, getDeepSeekClient } from "@/lib/deepseek";
 import type { QuotePreviewData } from "@/lib/quote-preview";
-
-export type ChatMessageInput = {
-  role: "user" | "assistant";
-  text: string;
-};
 
 export type AssistantChatResponse = {
   text: string;
   toolResults: ChatToolResult[];
+  toolCalls: ToolCallRecord[];
 };
 
 export type ChatQuoteGenerateResult = {
@@ -36,7 +42,7 @@ export async function sendChatMessage(
 ): Promise<AssistantChatResponse> {
   const safeMessage = userMessage.trim();
   if (!safeMessage) {
-    return { text: "请输入要查询的产品、价格或历史报价。", toolResults: [] };
+    return { text: "请输入要查询的产品、价格或历史报价。", toolResults: [], toolCalls: [] };
   }
 
   let client;
@@ -46,15 +52,17 @@ export async function sendChatMessage(
     return {
       text: error instanceof Error ? error.message : "DeepSeek API Key 未配置。",
       toolResults: [],
+      toolCalls: [],
     };
   }
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: CHAT_SYSTEM_PROMPT },
-    ...history.slice(-MAX_HISTORY_MESSAGES).map(toOpenAIMessage),
+    ...expandHistoryMessages(history.slice(-MAX_HISTORY_MESSAGES)),
     { role: "user", content: safeMessage },
   ];
   const toolResults: ChatToolResult[] = [];
+  const allToolCallRecords: ToolCallRecord[] = [];
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -67,13 +75,14 @@ export async function sendChatMessage(
       const choice = response.choices[0];
       const message = choice?.message;
       if (!message) {
-        return { text: "没有收到有效回复，请稍后重试。", toolResults };
+        return { text: "没有收到有效回复，请稍后重试。", toolResults, toolCalls: allToolCallRecords };
       }
 
       if (!message.tool_calls || message.tool_calls.length === 0) {
         return {
           text: message.content || "查询完成，结果如下。",
           toolResults,
+          toolCalls: allToolCallRecords,
         };
       }
 
@@ -84,17 +93,26 @@ export async function sendChatMessage(
           continue;
         }
         const args = parseToolArguments(toolCall.function.arguments);
+        console.log(`[CHAT-TOOL] call: ${toolCall.function.name}`, args);
         const numericFilterKeys = ["min_efficacy", "max_efficacy", "min_watts", "max_watts", "cri"];
         const usedFilters = numericFilterKeys.filter((key) => args[key] != null);
         if (usedFilters.length > 0) {
           console.log(`[CHAT-FILTER] ${toolCall.function.name} numeric filters:`, usedFilters.join(", "));
         }
         const result = await executeChatTool(toolCall.function.name, args);
+        console.log(`[CHAT-TOOL] result: ${toolCall.function.name}`, JSON.stringify(result.data).slice(0, 200));
+        const compactResult = JSON.stringify(compactForLLM(result.toolName, result.data));
         toolResults.push(result);
+        allToolCallRecords.push({
+          id: toolCall.id,
+          name: toolCall.function.name,
+          arguments: toolCall.function.arguments,
+          result: compactResult,
+        });
         toolMessages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify(result.data),
+          content: compactResult,
         });
       }
       messages.push(...toolMessages);
@@ -103,12 +121,14 @@ export async function sendChatMessage(
     return {
       text: `网络繁忙，请稍后重试。${error instanceof Error ? `（${error.message}）` : ""}`,
       toolResults,
+      toolCalls: allToolCallRecords,
     };
   }
 
   return {
     text: "查询已经完成，但助手还需要更多信息。你可以换个关键词再试。",
     toolResults,
+    toolCalls: allToolCallRecords,
   };
 }
 
@@ -132,13 +152,6 @@ export async function generateQuoteFromChatDraft(input: ChatQuoteDraftInput): Pr
     totalSaleAmount: input.items
       .reduce((sum, item, index) => sum + Number(preview.rows[index]?.cells.salePrice ?? 0) * item.quantity, 0)
       .toFixed(2),
-  };
-}
-
-function toOpenAIMessage(message: ChatMessageInput): ChatCompletionMessageParam {
-  return {
-    role: message.role,
-    content: message.text,
   };
 }
 

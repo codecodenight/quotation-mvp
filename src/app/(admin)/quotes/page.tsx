@@ -2,10 +2,15 @@ import type { Prisma } from "@prisma/client";
 
 import { getHistoricalQuotesByProductIds, type HistoricalCustomerQuote } from "@/lib/customer-quote-reference";
 import {
+  getBeamAngleOptions,
   getCategoryOptions,
   getCctOptions,
+  getCriOptions,
+  getDriverTypeOptions,
   getIpOptions,
   getMaterialOptions,
+  getPfOptions,
+  getProductIdsByParamRange,
   getProductIdsByWattsRange,
   getVoltageOptions,
   parseOptionalNonNegativeDecimal,
@@ -65,6 +70,12 @@ type QuotesPageProps = {
     cct?: string;
     voltage?: string;
     material?: string;
+    driverType?: string;
+    cri?: string;
+    pf?: string;
+    beamAngle?: string;
+    minEfficacy?: string;
+    maxEfficacy?: string;
     sort?: string;
     error?: string;
   }>;
@@ -73,6 +84,7 @@ type QuotesPageProps = {
 const MAX_PRODUCTS_FOR_SORTING = 200;
 const PRODUCT_RESULT_LIMIT = 50;
 const MAX_SORTABLE_PRICE = 10_000;
+const PRODUCT_ID_FILTER_CHUNK_SIZE = 400;
 
 export default async function QuotesPage({ searchParams }: QuotesPageProps) {
   const params = await searchParams;
@@ -86,6 +98,12 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
     cct: params.cct?.trim() ?? "",
     voltage: params.voltage?.trim() ?? "",
     material: params.material?.trim() ?? "",
+    driverType: params.driverType?.trim() ?? "",
+    cri: params.cri?.trim() ?? "",
+    pf: params.pf?.trim() ?? "",
+    beamAngle: params.beamAngle?.trim() ?? "",
+    minEfficacy: params.minEfficacy?.trim() ?? "",
+    maxEfficacy: params.maxEfficacy?.trim() ?? "",
     sort: params.sort?.trim() ?? "",
     error: params.error?.trim() ?? "",
   };
@@ -99,16 +117,40 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
     filters.cct,
     filters.voltage,
     filters.material,
+    filters.driverType,
+    filters.cri,
+    filters.pf,
+    filters.beamAngle,
+    filters.minEfficacy,
+    filters.maxEfficacy,
     filters.sort,
   ].some((value) => value.length > 0);
 
-  const [wattsProductIds, categories, ipOptions, cctOptions, voltageOptions, materialOptions, quotes] = await Promise.all([
+  const [
+    wattsProductIds,
+    efficacyProductIds,
+    categories,
+    ipOptions,
+    cctOptions,
+    voltageOptions,
+    materialOptions,
+    driverTypeOptions,
+    criOptions,
+    pfOptions,
+    beamAngleOptions,
+    quotes,
+  ] = await Promise.all([
     getProductIdsByWattsRange(filters.minWatts, filters.maxWatts),
+    getProductIdsByParamRange("luminous_efficacy", filters.minEfficacy, filters.maxEfficacy),
     getCategoryOptions(),
     getIpOptions(),
     getCctOptions(),
     getVoltageOptions(),
     getMaterialOptions(),
+    getDriverTypeOptions(),
+    getCriOptions(),
+    getPfOptions(),
+    getBeamAngleOptions(),
     prisma.quote.findMany({
       include: {
         _count: {
@@ -120,9 +162,10 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
       take: 50,
     }),
   ]);
+  const filteredProductIds = intersectProductIdFilters(wattsProductIds, efficacyProductIds);
   const products = shouldLoadProducts
     ? await prisma.product.findMany({
-        where: buildProductWhere(filters, wattsProductIds),
+        where: buildProductWhere(filters, filteredProductIds),
         include: {
           supplierOffers: {
             select: {
@@ -171,6 +214,10 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
       cctOptions={cctOptions}
       voltageOptions={voltageOptions}
       materialOptions={materialOptions}
+      driverTypeOptions={driverTypeOptions}
+      criOptions={criOptions}
+      pfOptions={pfOptions}
+      beamAngleOptions={beamAngleOptions}
     />
   );
 }
@@ -212,7 +259,7 @@ function serializeQuote(quote: QuoteHistoryResult): QuoteHistoryRow {
   return serializeQuoteSearchResult(quote);
 }
 
-function buildProductWhere(filters: QuoteFilters, wattsProductIds: string[] | null): Prisma.ProductWhereInput {
+function buildProductWhere(filters: QuoteFilters, productIds: string[] | null): Prisma.ProductWhereInput {
   const and: Prisma.ProductWhereInput[] = [];
 
   if (filters.search) {
@@ -249,11 +296,39 @@ function buildProductWhere(filters: QuoteFilters, wattsProductIds: string[] | nu
     and.push(buildParamFilter("material", filters.material));
   }
 
-  if (hasWattsFilter(filters)) {
-    and.push({ id: { in: wattsProductIds ?? [] } });
+  if (filters.driverType) {
+    and.push(buildParamFilter("driver_type", filters.driverType));
+  }
+
+  if (filters.cri) {
+    and.push(buildParamFilter("cri", filters.cri));
+  }
+
+  if (filters.pf) {
+    and.push(buildParamFilter("pf", filters.pf));
+  }
+
+  if (filters.beamAngle) {
+    and.push(buildParamFilter("beam_angle", filters.beamAngle));
+  }
+
+  if (hasProductIdFilter(filters)) {
+    and.push(buildProductIdsFilter(productIds ?? []));
   }
 
   return and.length > 0 ? { AND: and } : {};
+}
+
+function buildProductIdsFilter(productIds: string[]): Prisma.ProductWhereInput {
+  if (productIds.length <= PRODUCT_ID_FILTER_CHUNK_SIZE) {
+    return { id: { in: productIds } };
+  }
+
+  const chunks: Prisma.ProductWhereInput[] = [];
+  for (let index = 0; index < productIds.length; index += PRODUCT_ID_FILTER_CHUNK_SIZE) {
+    chunks.push({ id: { in: productIds.slice(index, index + PRODUCT_ID_FILTER_CHUNK_SIZE) } });
+  }
+  return { OR: chunks };
 }
 
 function buildParamFilter(paramKey: string, filterValue: string): Prisma.ProductWhereInput {
@@ -279,11 +354,20 @@ function buildParamFilter(paramKey: string, filterValue: string): Prisma.Product
   };
 }
 
-function hasWattsFilter(filters: QuoteFilters): boolean {
+function hasProductIdFilter(filters: QuoteFilters): boolean {
   return (
     parseOptionalNonNegativeDecimal(filters.minWatts) !== null ||
-    parseOptionalNonNegativeDecimal(filters.maxWatts) !== null
+    parseOptionalNonNegativeDecimal(filters.maxWatts) !== null ||
+    parseOptionalNonNegativeDecimal(filters.minEfficacy) !== null ||
+    parseOptionalNonNegativeDecimal(filters.maxEfficacy) !== null
   );
+}
+
+function intersectProductIdFilters(left: string[] | null, right: string[] | null): string[] | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  const rightIds = new Set(right);
+  return left.filter((id) => rightIds.has(id));
 }
 
 function getProductOrderBy(sort: string): Prisma.ProductOrderByWithRelationInput[] | undefined {

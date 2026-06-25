@@ -1,9 +1,12 @@
-import type { ChatCompletionTool } from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { Prisma } from "@prisma/client";
 
 import { rankOffers, type OfferBadge } from "@/lib/offer-ranking";
 import { formatParamLabel, sortDisplayParams } from "@/lib/product-param-display";
+import { getProductIdsByParamRange } from "@/lib/product-filters";
 import { prisma } from "@/lib/prisma";
+
+const PRODUCT_ID_FILTER_CHUNK_SIZE = 400;
 
 export type ChatToolName =
   | "search_products"
@@ -17,6 +20,19 @@ export type ChatToolResult =
   | { toolName: "search_customer_history"; data: CustomerHistoryResult }
   | { toolName: "compare_factories"; data: FactoryComparisonResult }
   | { toolName: ChatToolName; data: { error: string } };
+
+export type ToolCallRecord = {
+  id: string;
+  name: string;
+  arguments: string;
+  result: string;
+};
+
+export type ChatMessageInput = {
+  role: "user" | "assistant";
+  text: string;
+  toolCalls?: ToolCallRecord[];
+};
 
 export type ChatProductOffer = {
   id: string;
@@ -119,6 +135,16 @@ export const CHAT_TOOL_DEFINITIONS: ChatCompletionTool[] = [
           min_watts: { type: "number", description: "功率下限" },
           max_watts: { type: "number", description: "功率上限" },
           factory: { type: "string", description: "工厂名模糊匹配" },
+          voltage: { type: "string", description: "电压，例如 220、110、12、24" },
+          cct: { type: "string", description: "色温，例如 3000、4000、6500" },
+          ip: { type: "string", description: "防护等级，例如 20、44、65、67" },
+          material: { type: "string", description: "材质，例如 铝、铁、PC、ABS" },
+          driver_type: { type: "string", description: "驱动类型，例如 DOB、Linear、隔离、非隔离" },
+          cri: { type: "string", description: "显色指数，例如 80、90" },
+          pf: { type: "string", description: "功率因数，例如 0.5、0.9" },
+          beam_angle: { type: "string", description: "光束角，例如 120、60" },
+          min_efficacy: { type: "number", description: "光效下限 lm/W" },
+          max_efficacy: { type: "number", description: "光效上限 lm/W" },
           limit: { type: "number", description: "返回数量，默认 10，最大 20" },
         },
       },
@@ -165,6 +191,10 @@ export const CHAT_TOOL_DEFINITIONS: ChatCompletionTool[] = [
           category: { type: "string", description: "品类，必填" },
           watts: { type: "number", description: "功率精确匹配" },
           query: { type: "string", description: "型号或规格关键词" },
+          voltage: { type: "string", description: "电压，例如 220、110、12、24" },
+          ip: { type: "string", description: "防护等级，例如 20、44、65、67" },
+          driver_type: { type: "string", description: "驱动类型，例如 DOB、Linear、隔离、非隔离" },
+          material: { type: "string", description: "材质，例如 铝、铁、PC、ABS" },
         },
         required: ["category"],
       },
@@ -195,6 +225,115 @@ export async function executeChatTool(name: string, args: unknown): Promise<Chat
   }
 }
 
+export function expandHistoryMessages(history: ChatMessageInput[]): ChatCompletionMessageParam[] {
+  const expanded: ChatCompletionMessageParam[] = [];
+
+  for (const message of history) {
+    if (message.role === "user") {
+      expanded.push({ role: "user", content: message.text });
+      continue;
+    }
+
+    if (!message.toolCalls || message.toolCalls.length === 0) {
+      expanded.push({ role: "assistant", content: message.text });
+      continue;
+    }
+
+    expanded.push({
+      role: "assistant",
+      content: null,
+      tool_calls: message.toolCalls.map((toolCall) => ({
+        id: toolCall.id,
+        type: "function",
+        function: {
+          name: toolCall.name,
+          arguments: toolCall.arguments,
+        },
+      })),
+    });
+
+    for (const toolCall of message.toolCalls) {
+      expanded.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: toolCall.result,
+      });
+    }
+
+    if (message.text) {
+      expanded.push({ role: "assistant", content: message.text });
+    }
+  }
+
+  return expanded;
+}
+
+export function compactForLLM(toolName: string, data: unknown): unknown {
+  switch (toolName) {
+    case "search_products":
+      return compactSearchProducts(data);
+    case "get_product_offers":
+      return compactProductOffers(data);
+    case "compare_factories":
+    case "search_customer_history":
+    default:
+      return data;
+  }
+}
+
+function compactSearchProducts(data: unknown): unknown {
+  if (!data || typeof data !== "object" || !Array.isArray((data as SearchProductsResult).products)) {
+    return data;
+  }
+  const result = data as SearchProductsResult;
+
+  return {
+    total: result.total,
+    products: result.products.map((product) => ({
+      id: product.id,
+      model_no: product.model_no,
+      product_name: product.product_name,
+      category: product.category,
+      offer_count: product.offer_count,
+      recommended_offer: product.recommended_offer
+        ? {
+            id: product.recommended_offer.id,
+            factory_name: product.recommended_offer.factory_name,
+            purchase_price: product.recommended_offer.purchase_price,
+            currency: product.recommended_offer.currency,
+            moq: product.recommended_offer.moq,
+            price_flag: product.recommended_offer.price_flag,
+          }
+        : null,
+      params: product.params,
+    })),
+  };
+}
+
+function compactProductOffers(data: unknown): unknown {
+  if (!data || typeof data !== "object" || !Array.isArray((data as ProductOffersResult).offers)) {
+    return data;
+  }
+  const result = data as ProductOffersResult;
+
+  return {
+    product_id: result.product_id,
+    product_name: result.product_name,
+    model_no: result.model_no,
+    category: result.category,
+    offers: result.offers.slice(0, 5).map((offer) => ({
+      id: offer.id,
+      factory_name: offer.factory_name,
+      purchase_price: offer.purchase_price,
+      currency: offer.currency,
+      moq: offer.moq,
+      price_flag: offer.price_flag,
+      recommendation_score: offer.recommendation_score,
+    })),
+    params: result.params,
+  };
+}
+
 export async function searchProducts(args: Record<string, unknown>): Promise<SearchProductsResult> {
   const limit = clampToolLimit(args.limit, 10, 20);
   const query = normalizeToolText(args.query);
@@ -202,13 +341,40 @@ export async function searchProducts(args: Record<string, unknown>): Promise<Sea
   const factory = normalizeToolText(args.factory);
   const minWatts = parseToolNumber(args.min_watts);
   const maxWatts = parseToolNumber(args.max_watts);
+  const voltage = normalizeToolText(args.voltage);
+  const cct = normalizeToolText(args.cct);
+  const ip = normalizeToolText(args.ip);
+  const material = normalizeToolText(args.material);
+  const driverType = normalizeToolText(args.driver_type);
+  const cri = normalizeToolText(args.cri);
+  const pf = normalizeToolText(args.pf);
+  const beamAngle = normalizeToolText(args.beam_angle);
+  const minEfficacy = parseToolNumber(args.min_efficacy);
+  const maxEfficacy = parseToolNumber(args.max_efficacy);
   const wattsProductIds = await getWattsProductIds(minWatts, maxWatts);
+  const efficacyProductIds = await getProductIdsByParamRange("luminous_efficacy", minEfficacy, maxEfficacy);
+  const productIds = intersectProductIdFilters(wattsProductIds, efficacyProductIds);
 
-  if (wattsProductIds && wattsProductIds.length === 0) {
+  if (productIds && productIds.length === 0) {
     return { total: 0, products: [] };
   }
 
-  const where = buildProductWhere({ query, category, factory, productIds: wattsProductIds });
+  const where = buildProductWhere({
+    query,
+    category,
+    factory,
+    productIds,
+    paramFilters: {
+      voltage,
+      cct,
+      ip,
+      material,
+      driver_type: driverType,
+      cri,
+      pf,
+      beam_angle: beamAngle,
+    },
+  });
   const [total, products] = await Promise.all([
     prisma.product.count({ where }),
     prisma.product.findMany({
@@ -352,13 +518,27 @@ export async function compareFactories(args: Record<string, unknown>): Promise<F
 
   const watts = parseToolNumber(args.watts);
   const query = normalizeToolText(args.query);
+  const voltage = normalizeToolText(args.voltage);
+  const ip = normalizeToolText(args.ip);
+  const driverType = normalizeToolText(args.driver_type);
+  const material = normalizeToolText(args.material);
   const wattsProductIds = watts === null ? null : await getWattsProductIds(watts - 0.01, watts + 0.01);
   if (wattsProductIds && wattsProductIds.length === 0) {
     return { category, comparison: [] };
   }
 
   const products = await prisma.product.findMany({
-    where: buildProductWhere({ query, category, productIds: wattsProductIds }),
+    where: buildProductWhere({
+      query,
+      category,
+      productIds: wattsProductIds,
+      paramFilters: {
+        voltage,
+        ip,
+        driver_type: driverType,
+        material,
+      },
+    }),
     select: productSelection,
     orderBy: [{ productName: "asc" }],
     take: 200,
@@ -603,14 +783,26 @@ function buildProductWhere({
   category,
   factory,
   productIds,
+  paramFilters,
 }: {
   query?: string;
   category?: string;
   factory?: string;
   productIds?: string[] | null;
+  paramFilters?: Record<string, string | undefined>;
 }) {
+  const and: Prisma.ProductWhereInput[] = [];
+  if (productIds) {
+    and.push(buildProductIdsFilter(productIds));
+  }
+  for (const [paramKey, filterValue] of Object.entries(paramFilters ?? {})) {
+    if (filterValue) {
+      and.push(buildParamFilter(paramKey, filterValue));
+    }
+  }
+
   return {
-    ...(productIds ? { id: { in: productIds } } : {}),
+    ...(and.length > 0 ? { AND: and } : {}),
     ...(category ? { category } : {}),
     ...(factory ? { supplierOffers: { some: { factoryName: { contains: factory } } } } : {}),
     ...(query
@@ -628,24 +820,53 @@ function buildProductWhere({
   };
 }
 
+function buildProductIdsFilter(productIds: string[]): Prisma.ProductWhereInput {
+  if (productIds.length <= PRODUCT_ID_FILTER_CHUNK_SIZE) {
+    return { id: { in: productIds } };
+  }
+
+  const chunks: Prisma.ProductWhereInput[] = [];
+  for (let index = 0; index < productIds.length; index += PRODUCT_ID_FILTER_CHUNK_SIZE) {
+    chunks.push({ id: { in: productIds.slice(index, index + PRODUCT_ID_FILTER_CHUNK_SIZE) } });
+  }
+  return { OR: chunks };
+}
+
+function buildParamFilter(paramKey: string, filterValue: string): Prisma.ProductWhereInput {
+  return {
+    OR: [
+      {
+        params: {
+          some: {
+            paramKey,
+            normalizedValue: filterValue,
+          },
+        },
+      },
+      {
+        params: {
+          none: {
+            paramKey,
+            normalizedValue: { not: null },
+          },
+        },
+      },
+    ],
+  };
+}
+
 async function getWattsProductIds(minWatts: number | null, maxWatts: number | null): Promise<string[] | null> {
-  if (minWatts === null && maxWatts === null) {
-    return null;
-  }
+  return getProductIdsByParamRange("watts", minWatts, maxWatts);
+}
 
-  let sql = "SELECT DISTINCT product_id FROM product_params WHERE param_key = 'watts'";
-  const params: number[] = [];
-  if (minWatts !== null) {
-    sql += " AND CAST(normalized_value AS REAL) >= ?";
-    params.push(minWatts);
-  }
-  if (maxWatts !== null) {
-    sql += " AND CAST(normalized_value AS REAL) <= ?";
-    params.push(maxWatts);
-  }
-
-  const rows = await prisma.$queryRawUnsafe<Array<{ product_id: string }>>(sql, ...params);
-  return rows.map((row) => row.product_id);
+function intersectProductIdFilters(
+  left: string[] | null,
+  right: string[] | null,
+): string[] | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  const rightIds = new Set(right);
+  return left.filter((id) => rightIds.has(id));
 }
 
 function readArgs(args: unknown): Record<string, unknown> {

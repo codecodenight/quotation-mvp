@@ -1,16 +1,16 @@
 # HANDOFF.md — Session Context for Cold Start
 
-Last updated: 2026-06-16
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V10.3
+Last updated: 2026-06-21
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V18.0
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
 
 ---
 
-## Current State (after V10.3)
+## Current State (after V18.0)
 
 ### System Capabilities
-- Full quote lifecycle: import → product library → search (cross-category) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
+- Full quote lifecycle: import → product library → search (cross-category, OR-inclusive for missing params) → preview (with health warnings) → export (customer/internal mode) → history search → reuse
 - Historical customer FOB USD quote search + manual product binding (/customer-quotes)
 - Historical quote expanded rows show same-product FOB USD history after a product is bound (V5.4)
 - Customer quote file customer names normalized/extracted where safe (V5.4: 79→116 named records)
@@ -63,18 +63,27 @@ This file captures decisions, context, and reasoning that cannot be inferred fro
 - 超长 model_no 清理 (V2.26): 15 个 model_no > 200 chars 的产品缩短为 `{工厂}-{品类码}-{瓦数}W-{序号}` 格式，原始规格文本移入 remark
 - 文件路径可移植性 (V7.2): `file-paths.ts` 新增 3 级候选路径解析链（cwd+relative_path → marker-based snapshot extraction → absolute_path_snapshot fallback）；693/693 文件和 7,449/7,449 产品图片均可访问
 - 客户名大小写修正 (V5.4-fix): 40 行 customer_quote_files 客户编码大小写修正（Htf→HTF 等）+ 1 行误导入记录删除
+- 参数覆盖率冲刺 (V13.3-V16.0): 8 轮迭代将核心参数完成率从 39.7% 推到 94.6%（product_params 85,508→96,096）。策略链：remark 正则提取 → factory+category 传播（多阈值降级 80%→50%→30%）→ 品类默认值（60%）→ 文件级传播（70%）→ DeepSeek 二轮 AI 推理。32 个配件产品标记排除（product_role=accessory）。CATEGORY_CORE_PARAMS 集中化到 `scripts/v11-shared.ts`
+- 搜索逻辑改进 (V16.1): `buildParamFilter()` 在 `src/app/(admin)/quotes/page.tsx` 用 OR 逻辑（值匹配 + 缺失兜底）替代严格匹配；搜索覆盖率从 94.6% → 100%；灯管 CCT 搜索从 0 命中 → 91 命中
+- Chat 修复 (f033692): DeepSeek client 请求处理修复
+- 价格误检清洗 (V17.1): 5 种误检模式（LED chip price=2835 / 列名当产品 / MOQ 当产品 / 美莱德型号=价格 / 雄企编码=价格）共删除 186 offer + 83 垃圾产品 + 37 price_history + 582 params；5 路灯线缆标记 accessory；FK 安全检查（quote_items + customer_quote_rows）跳过 0 个
+- 光效数据修复 (V16.2): Part A 61 条 lumens→luminous_efficacy 误分类修正（8 reclassify + 13 fix_wrong + 40 delete_redundant），覆盖 6 品类；Part B Wellux Highbay 列头 lm/W 提取（6 个产品获得 90-100/100-110 efficacy，HB-HV 额外获得 150-160/160）
+- 搜索排序+筛选增强 (V18.0): `product-filters.ts` 新增 getVoltageOptions/getMaterialOptions；`page.tsx` 扩展 buildProductWhere + 内存价格排序（MAX_SORTABLE_PRICE=10000 过滤异常高价）；`quotes-client.tsx` 新增电压/材质/排序三个 select 筛选器
 
-### Data (after V10.3)
-- Products: 10,522 across 31 categories (V10.3: +300 from unlinked file import)
-- Supplier offers: 12,379 (V10.3: +1,295 new offers from 99 unlinked files)
-- Files in DB: 688 Excel files, 1 still unlinked (汇盈报价单（20系列灯具）)
-- Source archive: 681+ referenced files in `data/source-archive/` + `sample data/`
-- Price history: 9,857 records
+### Data (after V18.0)
+- Products: 10,201 across 31 categories (37 tagged as accessories, 10,156 scoped for core param tracking)
+- Supplier offers: 11,916
+- Files in DB: 693 (all local, 577/676 iCloud-dehydrated — only metadata local, data in iCloud)
+- Source archive: 676 Excel files in `data/source-archive/` (4.5 GB logical, 521 MB on disk due to APFS/iCloud)
+- Price history: 9,614 records
 - Product images: 7,449 products have images
-- Product params: 47,156 (V10.0→V10.3: +9,740 from backfill+derive pipeline)
-- Param coverage: watts 56.8% (5,976) | lumens 14.4% (1,516) | efficacy 17.2% (1,813) | cri 12.2% (1,282) | cct 14.6% (1,540 unique) | pf 11.7% (1,231)
-- **Drive elimination: COMPLETE** — DB has 0 My Passport references, all source files local
-- **V10.3 known issue**: ~79 supplier_offers have incorrect prices (LiFePO4 battery voltages or serial numbers stored as purchase_price); file→product links are correct, only price field is wrong
+- Product params: 95,475 (V16.1: 96,096 → V17.1: -582 garbage → V16.2: -61 lumens +22 efficacy +14 Highbay headers)
+- luminous_efficacy: 2,757 records (up from 2,735 after V16.2 fix)
+- **Core param coverage**: 94.6% (unchanged — V17.1/V16.2 cleaned data, didn't add new core params)
+- **Search coverage: 100%** — V16.1 OR logic + V18.0 voltage/material/sort filters
+- **Drive elimination: COMPLETE** — DB has 0 My Passport references
+- **V17.1 price cleanup: DONE** — 186 misdetected offers deleted, 83 junk products removed; remaining high-price offers (凯晟德 238024, 美莱德 JJL-L/D, 中千 26700 etc.) in "needs manual confirmation" list
+- **iCloud dehydration risk**: 577/676 source files have 0 disk blocks (iCloud-only). `du` reports 521MB but true size is 4.5GB. Files read-on-demand but at risk if iCloud subscription lapses
 - Batch 1 categories growth: 投光灯 16→492, 面板灯 69→902, 线条灯 38→1,123, 路灯 15→213, 灯带 21→383
 - Batch 2 categories growth: 吸顶灯 49→597, 筒灯 110→1,111, 三防灯 79→445, 磁吸灯 148→786, 净化灯 80→1,559, 镜前灯 63→185, 防潮灯 11→126
 - Batch 3 categories growth: 风扇灯 0→264, 工作灯 0→97, G4G9 0→51, 太阳能壁灯 87→561, 壁灯 27→290, 橱柜灯 134→204
@@ -284,39 +293,79 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 | V10.1 | 参数回填管线 | `v10.1-param-backfill.ts` 从源 Excel 列值回填 product_params；product_params 37,416→45,513 |
 | V10.2 | 回填管线修复 + 派生参数 | 扩展 MODEL_HEADER_PATTERNS + sheet-name fallback；V10.4 derive watts/efficacy (+1,646)；product_params→46,613 |
 | V10.3 | 导入 100 个未链接文件 | `v10.3-import-unlinked.ts` 99/100 文件成功；+300 产品 +1,295 offers；重跑 backfill/derive/audit；products 10,222→10,522；product_params→47,156 |
+| V10.6 | 扩展列名映射 + 第二轮回填 | HEADER_TO_PARAM +40 映射（实际功率/额定功率/显色指数/功率因数/灯具尺寸等）；重跑 backfill +856 params；product_params 47,156→48,012 |
+| V10.7 | 回填匹配改进 | 品类感知过滤 + DB 全品类 fallback + 短 model+watts 匹配 + 2-char key exact-only；改善匹配覆盖但增量已小 |
+| V10.8 | Sheet 名称参数提取 | 从 sheet 名解析 driver_type(隔离/非隔离/DOB) + voltage + ip；19 文件 33 sheet +131 params |
+| V10.9 | product_name 深度提取 | 从产品名正则提取 ip/cri/cct/lumens/beam_angle/voltage/driver_type/material/efficacy；+692 params |
+| V11.0 | 多行表头文件参数提取 | 解决 "no model column" 结构瓶颈：多行表头合并 + 组标签填充 + shape+size 复合匹配；77 文件 110 sheet +3,002 params + 34 derive；product_params 48,967→52,003 |
+| V11.1 | 反向匹配回填 | product→source_file_id→Excel row→ALL params；5 级匹配策略（精确 61%/产品名 32%/互包含 6%/核心片段 0.4%/行文本 0.2%）；3,701 产品匹配，+6,358 params |
+| V11.2 | 垃圾产品清理 | 10 种模式检测 427 非产品行；安全删除 176（243 有图跳过/22 客户报价/3 报价项）；-176 products -176 offers -211 params |
+| V11.3 | 列头即数值模式 | 因 mergeHeaderRows 合并 bug 仅产出 4 条 IP54 参数；根因 V12.0 Part B 修复 |
+| V11.4 | 标题行全 sheet 参数 | 从表头前 Row 0-2 提取 driver_type/voltage/ip/cri/pf/material/cct/certification；79 文件 86 sheet 1,238 产品 +1,920 params |
+| V11.5 | 反向匹配脏数据清理 | 删除 reverse_match 来源的价格/颜色误判：120 价格+42 颜色+7 加价+15 异常 CCT = -184 params |
+| V12.0 | 覆盖率第三轮综合提升 | Part A: -12 残留 $-prefix 脏数据; Part B: 列头数值修复（raw sub-row 替代 merged），+161 params; Part C: 复合型号解析 0 新增（全部已存在）; Part D: 同文件 90% 阈值传播 +44 params; product_params 60,240→60,433 |
+| V12.1 | 覆盖率第四轮综合提升 | Part A: -205 脏数据（122 价格误当参数 + 51 CRI + 17 PF + 15 IP）; Part B: -62 垃圾产品（110 有图跳过）; Part C: 70% 阈值文件传播 +393; Part D: 品类 IP20 推断 +1,563（灯丝灯/球泡/风扇灯/橱柜灯）; Part E: product_name v2 +49; products 10,346→10,284; product_params 60,433→62,233 |
+| V12.2 | 参数值标准化 + 去重 | voltage 去 AC/DC/V（1,966 条）; CRI 去 Ra（882 条）; IP 去 IP 前缀（389 条）; CCT 反向范围修正（47 条）; 去重 0 条（多值 CCT 全为合法不同色温）; product_params 计数不变 |
+| V4.4B | 仪表盘参数覆盖率明细 | 参数覆盖率条形图（11 个 param_key）+ 品类×参数热力图（Top 15 × 6 params）; COUNT(DISTINCT product_id) 统计; 纯 CSS 条形图无新依赖 |
+| V12.3 | 工厂+品类传播 + 品类默认值 | Part A: factory+category 60% 传播 +424; Part B: 品类默认值(28/31 条通过 ≥85% 验证) +9,441; CRI 23.6%→72.2%, PF 18.0%→50.6%; product_params 62,233→72,098 |
+| V12.4 | 同系列参数传播 | model_no 前缀提取 → (factory,category,prefix) 分组 → 70% 一致性传播; 10,202 有效型号中 2,481 提取到前缀, 333 个系列组; +58 params (material 26 + voltage 16 + driver_type 7 + cct 5 + pf 4); product_params 72,098→72,156 |
+| V13.0 | DeepSeek AI 参数推断 | 30 个品类 9,120 产品 319 批次 → 11,909 有效参数插入（voltage 3,646/cct 2,703/driver_type 1,602/cri 1,524/material 883/pf 882/beam_angle 606/base 63）；7,369 验证失败 = AI 正确返回 null；三步模式 dry-run/--infer/--apply；缓存 data/deepseek-cache/；product_params 72,156→84,040 |
+| V4.4C | 必要参数完成率仪表盘 | /data-quality 新增 CoreParamCompletion 组件；CATEGORY_CORE_PARAMS 30 品类定义（排除 watts/size_display）；全局完成率 bar + 品类列表 + 可展开逐参数明细；三色编码 ≥80% 绿 / 40-79% 黄 / <40% 红 |
+| V13.3 | Remark CCT/voltage 提取 | `scripts/v13.3-cct-voltage-remark.ts` 从 remark 正则提取 CCT 和 voltage；+243 params；CCT 52.8%→54.2% |
+| V13.4 | 安全 CCT 传播 | factory+category 主导值 ≥80% 一致性传播 CCT；+1,375 params；CCT 54.2%→67.6% |
+| V13.5 | 第二轮 IP 补全 | 品类默认 IP + 工厂传播 IP；+1,098 params |
+| V13.6 | PF/driver_type/material 默认值 | 工厂+品类默认值填补 PF、driver_type、material 缺口；+1,243 params |
+| V13.7 | 核心参数定义审计 | 只读审计 CATEGORY_CORE_PARAMS 定义与完成率影响 |
+| V13.8 | 精简核心参数 | 移除 4 个非必要核心参数要求；CATEGORY_CORE_PARAMS 集中化到 `scripts/v11-shared.ts` |
+| V13.9 | 配件/垃圾产品标记 | 32 产品标记为 accessory（product_role=accessory）；从完成率统计中排除；10,244 有效产品 |
+| V14.0 | 全方位参数传播 | Part A: remark 多参数正则提取 +152; Part B: 文件级传播 70% +533; Part C: 工厂+品类传播 50% +1,051; 合计 +1,736; 完成率 54.9%→60.5% |
+| V15.0 | 激进补全 | Part A: 品类默认值 60% 阈值 +2,478; Part B: 工厂+品类传播 30% 阈值 +3,064; 合计 +5,542; 完成率 60.5%→92.9% |
+| V16.0 | DeepSeek 二轮推理 | 728 个不完整产品送 DeepSeek V4 Flash 推理；缓存 data/deepseek-cache-v16/；+195 params (voltage 72/material 64/ip 39/cct 20); 完成率 92.9%→94.6% |
+| V16.1 | 搜索逻辑改进 | `buildParamFilter()` OR 逻辑：匹配值的产品 + 缺失该参数的产品；搜索覆盖率从 94.6% → 100% |
+| V17.1 | 价格误检清洗 + 配件标记 | 5 种误检模式删除 186 offer + 83 产品；FK 安全检查跳过 0；5 路灯线缆标记 accessory；凯晟德 238024 等留给人工确认 |
+| V16.2 | 光效数据修复 | Part A: 61 lumens→luminous_efficacy 误分类（8 reclassify/13 fix/40 delete）; Part B: Wellux Highbay 列头 lm/W 提取，6 产品获 efficacy |
+| V18.0 | 搜索排序 + 筛选增强 | getVoltageOptions/getMaterialOptions 复用 getParamOptions; 内存价格排序 + MAX_SORTABLE_PRICE=10000; UI 新增电压/材质/排序三个 select |
 
 ---
 
 ## What's Next
 
-### 已定路线（按优先级）
+### 已定路线（2026-06-21 更新）
 
-**阶段一：参数覆盖率提升（当前最高优先级）**
+~~V17.0 — HANDOFF 文档同步~~ ✅
+~~V17.1 — 价格/残留数据收口~~ ✅ 186 offer + 83 产品 + 5 配件标记
+~~V16.2 — 光效数据修复~~ ✅ 61 误分类修正 + 6 Highbay 列头提取
+~~V18.0 — 搜索排序 + 筛选增强~~ ✅ voltage/material/sort 三个新筛选器
 
-用户明确要求："这一关不能跳也不能绕"。每个参数对终端用户都重要，缺参数的产品不可交付。
+**V17.2 — 本地运行稳定性** ← 下一步
+- `next dev/start` 被系统 kill（内存不够）；Chat 页面因此不稳定
+- 日常工具第一要求是能打开
 
-1. **V10.6：扩展列名映射 + 第二轮回填** — 审计 Section I 显示大量未映射列：`实际功率`→watts (13 files)、`额定功率`→watts (10 files)、`整灯光效`→efficacy (11 files)、`显色指数`→cri (9 files)、`功率因数`→pf (12 files)、`灯具尺寸`→size_display (12 files) 等。扩展 HEADER_TO_PARAM 后重跑 backfill。
-2. **V10.7：列头即数值模式** — 面板灯/三防灯 Excel 用 "3W"/"5W"/"9W" 做列头，每个 (size行 × W列) 组合需写入 watts 参数。同理 "100lm/w"/"110lm/w" 列头代表光效等级。
-3. **V10.8：品类深挖** — 覆盖率最差品类需品类专用解析器或确认数据天花板：线条灯 watts 18.6%、磁吸灯 lumens 0%、皮线灯 watts 4.1%、灯带 watts 27.9%、镜前灯 watts 17.5%。
+**V9.1-V9.2 — 对话式搜索/报价**
+- V9.0/V9.0A 已有 DeepSeek + `/chat` 基础
+- V9.1: 对话→搜索（"帮我找 IP65 的 50W 投光灯"）
+- V9.2: 对话→报价（自动构建报价草稿）
 
-**阶段二：数据天花板策略**
+**V8.0 — Tauri 桌面打包**
+- 等 V17.2 完成后启动
+- V7.2 路径可移植性已铺垫
 
-对源文件确实没有的参数，三个选项需用户决策：
-- 找补充数据源（规格书、网站数据）
-- AI 辅助推断（DeepSeek 根据同品类已知参数推断缺失值，标注 confidence=low）
-- 接受天花板，UI 上做 graceful degradation
-
-**阶段三：对话式界面 + 打包**
-
-数据质量达标后回到产品形态：
-4. **V9.x → 对话式界面迭代** — 已有 V9.0/V9.0A 的 DeepSeek 集成 + 聊天布局基础
-5. **V8.0：Tauri MVP** — Next.js + Tauri 单文件安装包
-6. **V5.5：半自动匹配候选 UI**
-
-**按需 / 低优先级**
-- V10.3 价格列误检清洗（~79 条 offer price 不正确）
+### 按需 / 低优先级
+- V5.5：半自动匹配候选 UI（~795 行 customer_quote_rows）
 - PDF custom-parser（5 份候选，边际收益低）
 - 客户实体管理（V3.1，当前 free-text 够用）
+
+### 参数覆盖率总结（V10.0→V16.1，已完成）
+
+product_params 从 37,416 → 96,096（+58,680），全局核心参数完成率从 ~30% → 94.6%。
+
+四大策略按贡献排序：
+1. **品类默认值**（V12.3 + V15.0）: +11,919 — 最高产出单一策略
+2. **DeepSeek AI 推断**（V13.0 + V16.0）: +12,104 — 覆盖最多参数种类
+3. **源 Excel 回填**（V10.1-V11.4）: ~+15,000 — 确定性提取基础
+4. **传播策略**（V12.0-V14.0 file/factory/category）: ~+7,000 — 补充中间地带
+
+剩余 558 产品的缺口（CCT 529 / material 43 / voltage 8 / ip 1）来自源 Excel 根本没有这些数据。V16.1 OR 搜索逻辑保证这些产品仍可被搜到
 
 ### 已完成
 - ~~Stale files cleanup~~ ✅ commit d274faa
@@ -382,6 +431,35 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - ~~V6.3 — 空壳产品清理~~ ✅ commit fd7a578 — 4 产品 + 17 params 删除；products 10,226→10,222
 - ~~V2.26 — 超长 model_no 清理~~ ✅ commit fd7a578 — 15 产品 model_no 缩短，原规格移入 remark；0 重复
 - ~~V7.2 — 文件路径可移植性~~ ✅ commit fd7a578 — file-paths.ts 3 级候选链；693/693 文件 + 7,449/7,449 图片全部可访问
+- ~~V10.6 — 扩展列名映射 + 第二轮回填~~ ✅ HEADER_TO_PARAM +40 映射；重跑 backfill +856 params
+- ~~V10.7 — 回填匹配改进~~ ✅ 品类感知过滤 + 全品类 fallback + 短 model 匹配改进；品类 tiebreaker 无实际命中
+- ~~V10.8 — Sheet 名称参数提取~~ ✅ 19 文件 33 sheet +131 params（driver_type 54 / ip 68 / voltage 9）
+- ~~V10.9 — product_name 深度提取~~ ✅ 693 产品 +692 params；material 205 / ip 106 / cct 104 / lumens 82 / voltage 72
+- ~~V11.0 — 多行表头文件参数提取~~ ✅ commit f448bdc — 77 文件 110 sheet +3,002 params + 34 derive；解决 "no model column" 结构瓶颈；product_params 48,967→52,003
+
+- ~~V12.1 — 覆盖率第四轮综合~~ ✅ commit 7979ccf — Part A -205 脏数据; Part B -62 垃圾产品; Part C +393 传播(70%); Part D +1,563 品类 IP20; Part E +49 名称v2; products 10,346→10,284; product_params 60,433→62,233
+- ~~V12.2 — 参数值标准化~~ ✅ commit 5bd555c — voltage 1,966 / CRI 882 / IP 389 / CCT 47 条 normalized_value 修改; 去重 0 条（多值 CCT 全为合法不同色温）
+- ~~V4.4B — 仪表盘参数覆盖率明细~~ ✅ commit 65e775a — 参数覆盖率条形图 + 品类×参数热力图; COUNT(DISTINCT product_id); 纯 CSS 无新依赖
+- ~~V12.3 — 工厂+品类传播 + 品类默认值~~ ✅ commit b2fc86b — Part A +424 (factory+category 60% 传播); Part B +9,441 (28/31 品类默认值通过验证, 3 条样本<10跳过); CRI 23.6%→72.2%, PF 18.0%→50.6%, driver_type 11.8%→21.2%; product_params 62,233→72,098
+- ~~V12.4 — 同系列参数传播~~ ✅ commit 0a7f62f — 333 系列组, +58 params (material 26/voltage 16/driver_type 7/cct 5/pf 4/cri 0); 增量小因 V12.3 已填满大部分缺口; product_params 72,098→72,156
+- ~~V13.0 — DeepSeek AI 参数推断~~ ✅ — 30 品类 9,120 产品 319 批次; +11,909 有效参数 (voltage 3,646/cct 2,703/driver_type 1,602/cri 1,524/material 883/pf 882/beam_angle 606/base 63); 7,369 验证失败=AI 正确返回 null; product_params 72,156→84,040
+- ~~V4.4C — 必要参数完成率仪表盘~~ ✅ — /data-quality CoreParamCompletion 组件; CATEGORY_CORE_PARAMS 30 品类; 全局完成率 ~30%; 品类列表+展开逐参数明细
+- ~~V13.1 — AI 推断后处理~~ ✅ commit f499cb2 — Part A AI 一致性校验(53.5% outlier, 只报告不删); Part B luminous_efficacy 派生 +31; Part C 兜底默认值 0 新增(全跳过); Part D 覆盖率审计; product_params 84,040→84,071
+- ~~V13.2 — 规则填充 IP/base/voltage~~ ✅ commit d71a783 — 线条灯 IP20 +1,081(路径推断); 灯带 IP +178(电压推断); 太阳能 IP65 +104; 灯丝灯 base E27 +54; 皮线灯 voltage +20; IP 覆盖 34.5%→67.3%; 线条灯 3.8%→41.6%; 全局完成率 34.2%→39.7%; product_params 84,071→85,508
+- ~~V13.3 — Remark CCT/voltage 提取~~ ✅ commit dba5e88 — +243 params; CCT 52.8%→54.2%
+- ~~V13.4 — 安全 CCT 传播~~ ✅ commit eddb6b9 — factory+category ≥80% CCT 传播; +1,375 params
+- ~~V13.5 — 第二轮 IP 补全~~ ✅ commit ff55747 — 品类默认 + 工厂传播; +1,098 params
+- ~~V13.6 — PF/driver_type/material 默认值~~ ✅ commit b4aa226 — +1,243 params
+- ~~V13.7 — 核心参数定义审计~~ ✅ commit 207ecd7 — 只读审计
+- ~~V13.8 — 精简核心参数~~ ✅ commit 9ad4563 — 移除 4 非必要参数; CATEGORY_CORE_PARAMS 集中到 v11-shared.ts
+- ~~V13.9 — 配件/垃圾产品标记~~ ✅ commit 1dc3825 — 32 产品 accessory; 10,244 有效产品; 完成率 39.7%→54.9%
+- ~~V14.0 — 全方位参数传播~~ ✅ commit 8c533fd — remark 提取 +152 / 文件传播 +533 / 工厂传播 +1,051 = +1,736; 完成率 54.9%→60.5%
+- ~~V15.0 — 激进补全~~ ✅ commit 11fcc22 — 品类默认 60% +2,478 / 工厂传播 30% +3,064 = +5,542; 完成率 60.5%→92.9%
+- ~~V16.0 — DeepSeek 二轮推理~~ ✅ commit fb82685 — 728 产品→DeepSeek V4 Flash; +195 params; 完成率 92.9%→94.6%
+- ~~V16.1 — 搜索 OR 逻辑~~ ✅ commit f3d089c — buildParamFilter() OR 逻辑; 搜索覆盖率 94.6%→100%
+- ~~V17.1 — 价格误检清洗~~ ✅ commit 1671136 — 5 种模式 186 offer + 83 产品删除 + 5 路灯配件标记; products 10,284→10,201; supplier_offers 12,102→11,916
+- ~~V16.2 — 光效数据修复~~ ✅ commit 25b0d4c — 61 lumens→luminous_efficacy 修正 + Wellux Highbay 列头提取 14 records; luminous_efficacy 2,735→2,757
+- ~~V18.0 — 搜索排序+筛选增强~~ ✅ commit 9d89453 — voltage/material 筛选 + price-asc/desc/newest/name 排序; grid 4→7 列
 
 ### 关键发现
 - V2.14 Batch 1 自动检测成功率 98.7%（305/309），`scripts/batch-import-v2.14.ts` 可直接复用于 Batch 2/3
@@ -443,6 +521,54 @@ Full read-only scan of all 1,215 Excel files, classified into 4 tiers:
 - V10.3 覆盖率反降（watts 57.7%→56.8%）：因为新增 300 产品但参数增量不足。V10.3 的价值是管道铺设（文件→产品链路），参数增长的瓶颈在列名映射和 Excel 结构解析
 - V10.0 审计发现列头即数值模式：面板灯/三防灯 Excel 用 "3W"/"5W"/"9W" 做列头，下面放价格。这种结构意味着参数编码在列头而非数据单元格中，需要专门处理逻辑
 - `extract-params.ts` 第 1902 行有 `deleteMany` 操作，会清除所有现有参数后重建。V10.x 管线的 backfill/derive 脚本都是只 INSERT 不 DELETE，避免破坏 excel_column 来源的参数。两条路径不能混用
+- V10.6-V10.9 四任务过夜批量执行总结：V10.6 扩展列名映射是主力（+856），V10.9 product_name 深度提取出乎意料好（+692），V10.8 sheet 名称提取窄但精准（+131），V10.7 匹配改进无额外增量（品类 tiebreaker 0 命中）。四任务合计 +1,811，远低于预估 +4,300-9,700，根因是 "no model column" 结构瓶颈
+- V11.0 "no model column" 根因分析：`detectHeaderRow` 选最多非空单元格的行 → 选中子标题行（row 4: "PS"/"Glass"/"Out Size"/"Cut Size"...）跳过包含"型号"的主标题行（row 3）。788 个 sheet 受影响。解法：独立脚本 `v11.0-multirow-header-extract.ts` 直接扫描含模型列的行 + 合并下一行子标题
+- V11.0 多行表头解锁了之前完全不可达的参数：pf +309（从 0 可观测）、led_count +155、cutout_mm +179、height_mm +71；面板灯 +1,114 占总增量 37%，筒灯 +685 占 23%
+- V11.0 高跳过率（30,997 已存在 vs 3,002 新增 ≈ 10:1）合理：同一产品（如"2.5寸圆形"）出现在多个供应商文件/多个配置 sheet 中，首次写入后后续重复自然被去重
+- V10.9 material 提取有 ~8 条脏数据：`/铝[材合]?/` 正则 `?` 使可选字符类为空匹配，导致 "铝线" 中的 "铝" 被当成 material。低优先级，不影响覆盖率统计
+- V11.1 反向匹配是覆盖率提升 ROI 最高的单一策略（+6,358 params），但引入了 196 条数据污染（2.7%）——某些 Excel 文件"色温"列头正确但列内容是价格/颜色。V11.5 + V12.0 Part A 已清理完毕
+- V11.3 mergeHeaderRows bug 分析：`isBroadGroupHeader(main)` 把广义组标签（如"非隔离窄压驱动"）和子行数值（如"3W"）拼合，导致 detectValueHeaders 的 `^(\d+)\s*[Ww]$` 正则失败。V12.0 Part B 用 `detectMultiRowHeader` 的原始子行做 value-header 检测，不改 v11-shared.ts
+- V11.4 title-row 提取意外高效：79 文件的前 2-3 行包含全 sheet 通用参数（驱动类型/电压/IP/CRI/PF/材质/CCT/认证），一次应用到该 sheet 全部产品。+1,920 params 是仅次于 V11.1 的第二大增量
+- V12.0 覆盖率统计 bug 发现：`loadCoverage` 用 `_count: { productId: true }` 计的是记录数不是去重产品数。CCT 报告 3,737（36.1%）但实际只有 2,495 个不同产品（24.1%）。差异原因：部分产品有多条 CCT 记录（来自不同提取路径）
+- V12.0 Part D 同文件传播发现的问题：传播粒度是 file 级不是 sheet 级，对多 sheet 使用不同参数值的文件可能不准；另外部分传播目标是 V11.2 未清理的垃圾备注行（如"1.以上产品为IC电源,线性方案."）
+- 覆盖率天花板诊断：voltage/cct/cri/pf/driver_type 缺失的根因是多数 Excel 报价表根本没有这些列。product_name 中可提取的也很少（IP ~1 条，CCT ~95 条，voltage ~53 条）。品类推断（灯丝灯/球泡/风扇灯→IP20）是确定性策略中最大的突破口（+1,563）。真正的天花板突破需要 AI 推断
+- V12.1 品类 IP 推断是 V11.x-V12.x 阶段性价比最高的策略：+1,563 params 来自 4 行配置，IP 覆盖率从 17.8% 跳到 33.7%。品类推断适用于有确定物理属性的室内灯具（灯丝灯/球泡/风扇灯/橱柜灯 = IP20）
+- V12.1 Part C 70% 阈值传播比 V12.0 的 90% 阈值多出 +349 params（393 vs 44），说明大量文件的参数一致性在 70-89% 区间
+- V12.2 去重结果 0 条说明：product_params 的 1,242 条 CCT "多余"记录全部是合法多值参数（同产品不同色温如 3000/4000/6500），不是数据重复
+- V12.2 标准化前 voltage 有 3 种表示（"220-240" / "220-240V" / "AC220-240V"），CRI 有 2 种（"80" / "Ra80"），IP 有 2 种（"65" / "IP65"）。标准化后对话接口和筛选器不再需要处理多种格式
+- V4.4B 仪表盘验证确认 IP 覆盖率跃升最为显著，从仪表盘红区进入黄区；voltage/cct/cri/pf 仍在 18-36% 区间，下一步需 AI 推断
+- V12.3 Part B 品类默认值是整个 V10-V12 阶段覆盖率产出最高的单一策略（+9,441 params），远超 V11.1 反向匹配（+6,358）。CRI 一次性从 23.6% 跳到 72.2%（覆盖 7,423/10,284 产品）
+- V12.3 Part B 3 条默认值因样本数 < 10 被正确跳过：轨道灯 CRI(4 样本)/轨道灯 PF(4 样本)/应急灯 PF(2 样本)。运行时验证有效
+- V12.3 Part A factory+category 传播 +424 符合预估 ~470，主要贡献 voltage(124)/cct(110)/cri(92)
+- V12.3 existingParamKeys 只加载 normalized_value 非空的记录，导致 3 个产品"重复"（旧记录 normalized_value 为空如 "N"/"CRI"）。这不是 bug——空值旧记录不是有效参数，新记录正确填充了缺口
+- V12.4 系列传播产出远低于预估（58 vs 2,000-4,000）：V12.3 品类默认值已大面积填充 CRI/PF，V12.4 的 CRI 触发系列组为 0。V12.4 唯一有意义的贡献是 material(26)——这个参数没有品类默认值
+- V12.4 系列前缀提取率仅 24%（2,481/10,202）：大量产品 model_no 不含可分离的瓦数/数字后缀（如 "BT-001"/"LP-6060" 已经是完整型号）。前缀提取改进空间有限
+- 品类必要参数定义完成（`docs/category-required-params.md`），30 个品类 × 3-8 个必要参数。太阳能壁灯/太阳能/充电灯不需要 voltage（太阳能/电池供电）。皮线灯只需 W/V/IP（装饰类）
+- V13.0 DeepSeek 推断产出 11,909 条有效参数，是整个项目参数提取历史中单次操作产出第二高（仅次于 V12.3 品类默认 +9,441，但 V13.0 覆盖更多参数种类）
+- V13.0 验证失败率 38%（7,369/19,278）= AI 对不确定值正确返回 null。失败集中在 CCT/voltage——产品名仅有瓦数/尺寸时无法推断色温和电压
+- V13.0 三步模式（dry-run → --infer → --apply）设计有效：--infer 可中断重跑（缓存文件已有则跳过），--apply 独立于 API 调用
+- V13.0 的 getCategoryContext() 为 30 个品类提供行业背景文本（如"三防灯 = tri-proof, typically IP65"），提升 AI 推断准确率
+- V4.4C 核心参数完成率揭示：全局 ~30% 产品有全部核心参数。100% 完成的品类（充电灯 7/7, G4G9 61/61）是小品类；大品类如线条灯(3.8%)、面板灯(35.1%) 因 CCT/IP 缺口拖后腿
+- 线条灯 IP 推断方案确认可行：1,059/1,083 缺 IP 产品的源文件在 室内照明/ 路径下 → IP20；2 个在 户外/ → IP65；31 个在其他路径（瑞鑫/乐道/核价文件）均为室内产品
+- 灯带 IP 可从电压推断部分：220V → IP65 (91% 一致性, 20/22 样本)；24V → IP20 (97%, 32/33)；12V 样本太少(7)不做默认
+- 太阳能 IP65 品类默认可行：89% 主导值 (183/206 产品)，超过 85% 阈值
+- 灯丝灯 base E27 默认可行：82.8% 品类级 + 工厂分组后部分工厂达 85%+
+- CCT 是硬天花板（V13.2 时 4,776 产品缺 CCT）——但 V13.3-V16.0 系列通过 remark 提取 + 传播 + 品类默认 + DeepSeek 二轮推理，将 CCT 缺口从 4,776 缩减到 529。剩余 529 产品源 Excel 确实没有色温数据
+- V13.3-V16.0 参数覆盖率提升路径：39.7%(V13.2) → 54.9%(V13.9, 精简定义+配件排除) → 60.5%(V14.0, 传播) → 92.9%(V15.0, 激进补全) → 94.6%(V16.0, DeepSeek 二轮)
+- V14.0 三层传播策略有效排序：remark 正则（最精确但产出最少 152）→ 文件级传播 70%（中等 533）→ 工厂+品类传播 50%（最粗但产出最高 1,051）。先精确后粗放避免脏数据
+- V15.0 是整个参数覆盖项目中 ROI 最高的单一版本：+5,542 params，完成率一次性从 60.5% 跳到 92.9%。品类默认值 60% 阈值 + 工厂传播 30% 阈值的组合比 V14.0 的保守阈值多覆盖 3,806 条
+- V16.0 DeepSeek 二轮推理边际收益递减：仅 +195（vs V13.0 的 +11,909）。剩余缺口产品的文本信息太少，AI 也无法推断
+- V16.1 搜索 OR 逻辑的核心洞见（用户原话）：CCT 必填也达到 80%，剩下的用可选搜索条件不就行了吗？两者结合搜索覆盖率 = 100%
+- V16.1 验证数据：灯管 CCT=6500 搜索从 0 命中 → 91 命中（99%）；筒灯 CCT+IP 双条件从 2 → 898（79.8%）；面板灯 CCT=4000 从 4 → 79
+- 灯管 CCT 1.1% 完成率（91/92 缺 CCT）：整个品类只有 1 个产品有 CCT 数据，没有任何统计方法能传播。DeepSeek 也无法推断。是已知最大的品类级数据空白
+- V14.0 发现 5 路灯线缆产品（"1分3/含头总长度..."）应为 accessory 但 V13.9 规则未捕获，且 V14.0 已给它们传播了 voltage。待 V17.1 清理
+- existingParamKeys 去重模式贯穿 V14.0-V16.0 全部脚本：`Set<string>` using `productParamKey(productId, paramKey)`，每次插入后立即更新，确保跨方法无重复
+- V17.1 价格误检实际规模远超预估（391 条 >500 RMB offer，原估 ~79）。5 种明确模式删除 186 条，剩余 ~200 条在"需人工确认"列表中。凯晟德 238024 RMB 几乎确定是误检（太阳能投光灯不可能 24 万），美莱德 JJL-L/JJL-D 前缀也是型号=价格模式但未在 V17.1 scope 内
+- V17.1 美莱德模式 4 实际删除 35 条（vs 预估 56），因为只处理了 JJL-C 前缀。JJL-L/JJL-D/JJL-LD 前缀的型号=价格模式（如 JJL-L8118→price=8118）也存在但被归入"未处理"
+- V16.2 发现 lumens 列存储 lm/W 值的问题跨 6 个品类（Highbay 22 / 路灯 15 / 筒灯 14 / 轨道灯 4 / 工作灯 3 / 投光灯 2）。筒灯最严重：原有 efficacy 值如 "11", "16" 是 total_lumens/watts 而非 lm/W，已修正为 70-80 区间
+- V16.2 Part B Wellux Highbay 列头提取只匹配到 6/51 个 Highbay 产品。HB-H Pro/HB-HVS Eco/HB-K Eco 等 sheet 有 160lm/W 列头但产品（HB-H/HB-HVS/HB-K 型号）未在 DB 中——这些型号从未被导入
+- iCloud 优化存储发现：`du -sh` 报 521MB 但 `stat -f %z` 统计真实大小 4.5GB。577/676 文件 blocks=0（数据已驱逐到 iCloud）。APFS 透明压缩/dehydration 导致 Finder 显示文件存在但实际数据不在本地。对参数提取脚本的影响：读取 dehydrated 文件时 macOS 会自动下载，但脚本可能因网络超时失败
+- V18.0 价格排序设计：Prisma 不支持 relation aggregate 排序（_min purchasePrice），改为 JS 内存排序。价格排序时取 MAX_PRODUCTS_FOR_SORTING=200 条再截取 PRODUCT_RESULT_LIMIT=50 条；非价格排序直接 DB orderBy 取 50 条
 
 ### Not Now
 - 通用 PDF 导入 UI（当前只有少量 PDF 适合导入，先用 profile-based 脚本）

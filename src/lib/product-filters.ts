@@ -45,18 +45,42 @@ export async function getMaterialOptions(): Promise<ProductFilterOption[]> {
   return getParamOptions("material");
 }
 
+export async function getDriverTypeOptions(): Promise<ProductFilterOption[]> {
+  return getParamOptions("driver_type");
+}
+
+export async function getCriOptions(): Promise<ProductFilterOption[]> {
+  return getParamOptions("cri");
+}
+
+export async function getPfOptions(): Promise<ProductFilterOption[]> {
+  return getParamOptions("pf");
+}
+
+export async function getBeamAngleOptions(): Promise<ProductFilterOption[]> {
+  return getParamOptions("beam_angle");
+}
+
 export async function getProductIdsByWattsRange(
   minWatts: string,
   maxWatts: string,
 ): Promise<string[] | null> {
-  const min = parseOptionalNonNegativeDecimal(minWatts);
-  const max = parseOptionalNonNegativeDecimal(maxWatts);
+  return getProductIdsByParamRange("watts", minWatts, maxWatts);
+}
+
+export async function getProductIdsByParamRange(
+  paramKey: string,
+  minValue: string | number | null,
+  maxValue: string | number | null,
+): Promise<string[] | null> {
+  const min = parseOptionalNonNegativeDecimal(minValue);
+  const max = parseOptionalNonNegativeDecimal(maxValue);
   if (min === null && max === null) {
     return null;
   }
 
-  let sql = "SELECT DISTINCT product_id FROM product_params WHERE param_key = 'watts'";
-  const params: number[] = [];
+  let sql = "SELECT DISTINCT product_id FROM product_params WHERE param_key = ?";
+  const params: Array<string | number> = [paramKey];
   if (min !== null) {
     sql += " AND CAST(normalized_value AS REAL) >= ?";
     params.push(min);
@@ -70,7 +94,13 @@ export async function getProductIdsByWattsRange(
   return rows.map((row) => row.product_id);
 }
 
-export function parseOptionalNonNegativeDecimal(value: string): number | null {
+export function parseOptionalNonNegativeDecimal(value: string | number | null): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
   const normalized = value.trim();
   if (!/^\d+(\.\d+)?$/.test(normalized)) {
     return null;

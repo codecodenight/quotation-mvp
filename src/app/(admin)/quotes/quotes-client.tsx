@@ -40,6 +40,12 @@ export type QuoteFilters = {
   cct: string;
   voltage: string;
   material: string;
+  driverType: string;
+  cri: string;
+  pf: string;
+  beamAngle: string;
+  minEfficacy: string;
+  maxEfficacy: string;
   sort: string;
   error: string;
 };
@@ -54,6 +60,10 @@ type QuotesClientProps = {
   cctOptions: { value: string; count: number }[];
   voltageOptions: { value: string; count: number }[];
   materialOptions: { value: string; count: number }[];
+  driverTypeOptions: { value: string; count: number }[];
+  criOptions: { value: string; count: number }[];
+  pfOptions: { value: string; count: number }[];
+  beamAngleOptions: { value: string; count: number }[];
 };
 
 const inputClass =
@@ -95,6 +105,10 @@ export function QuotesClient({
   cctOptions,
   voltageOptions,
   materialOptions,
+  driverTypeOptions,
+  criOptions,
+  pfOptions,
+  beamAngleOptions,
 }: QuotesClientProps) {
   const [mode, setMode] = useState<"editing" | "previewing">("editing");
   const [preview, setPreview] = useState<QuotePreviewData | null>(null);
@@ -121,6 +135,14 @@ export function QuotesClient({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const selectedProductIds = new Set(selectedItems.keys());
   const sameCurrencyMode = allSelectedOffersUseCurrency(selectedItems, currency);
+  const hasMoreFilters = [
+    filters.driverType,
+    filters.cri,
+    filters.pf,
+    filters.beamAngle,
+    filters.minEfficacy,
+    filters.maxEfficacy,
+  ].some((value) => value.length > 0);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -573,6 +595,57 @@ export function QuotesClient({
               </select>
             </Field>
           </div>
+          <details className="mt-2" open={hasMoreFilters}>
+            <summary className="cursor-pointer text-sm font-semibold text-muted hover:text-ink">更多筛选</summary>
+            <div className="mt-2 grid gap-3 md:grid-cols-4 xl:grid-cols-6">
+              <Field label="驱动类型">
+                <select name="driverType" defaultValue={filters.driverType} className={selectClass}>
+                  <option value="">不限</option>
+                  {driverTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value} ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="显色指数">
+                <select name="cri" defaultValue={filters.cri} className={selectClass}>
+                  <option value="">不限</option>
+                  {criOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value} ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="功率因数">
+                <select name="pf" defaultValue={filters.pf} className={selectClass}>
+                  <option value="">不限</option>
+                  {pfOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value} ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="光束角">
+                <select name="beamAngle" defaultValue={filters.beamAngle} className={selectClass}>
+                  <option value="">不限</option>
+                  {beamAngleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value}° ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="最小光效">
+                <input name="minEfficacy" defaultValue={filters.minEfficacy} placeholder="90" className={inputClass} />
+              </Field>
+              <Field label="最大光效">
+                <input name="maxEfficacy" defaultValue={filters.maxEfficacy} placeholder="150" className={inputClass} />
+              </Field>
+            </div>
+          </details>
         </form>
       </section>
 
