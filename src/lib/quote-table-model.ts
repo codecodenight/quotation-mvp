@@ -47,6 +47,7 @@ type QuoteTableSourceItem = {
   productId?: string;
   supplierOfferId?: string;
   imagePath?: string | null;
+  priceFlag?: string | null;
   productName: string;
   category?: string | null;
   modelNo: string | null;
@@ -357,7 +358,20 @@ function buildQuoteTableWarnings(item: QuoteTableSourceItem): CategorizedWarning
       ctnHeight: item.ctnHeight,
     },
   );
-  return [...healthWarnings, ...buildProductDetailsWarnings(productDetails)];
+  return [...healthWarnings, ...buildProductDetailsWarnings(productDetails), ...buildPriceFlagWarnings(item.priceFlag)];
+}
+
+function buildPriceFlagWarnings(priceFlag: string | null | undefined): CategorizedWarning[] {
+  if (priceFlag === "suspicious_low") {
+    return [{ message: "采购价异常偏低（suspicious_low）", tier: "quote" }];
+  }
+  if (priceFlag === "outlier_high") {
+    return [{ message: "采购价统计离群高值（outlier_high）", tier: "logistics" }];
+  }
+  if (priceFlag === "suspicious_high") {
+    return [{ message: "采购价异常偏高（suspicious_high）", tier: "logistics" }];
+  }
+  return [];
 }
 
 function buildProductDetailsWarnings(productDetails: string): CategorizedWarning[] {

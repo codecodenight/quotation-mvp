@@ -227,6 +227,34 @@ describe("buildQuoteTableModel", () => {
     expect(model.rows[0].cells.image).toBeNull();
   });
 
+  test("adds a quote-tier warning for suspicious_low price flags", () => {
+    const model = buildQuoteTableModel(quoteWithItems([{ ...panelItem, priceFlag: "suspicious_low" }]), {
+      customerMode: true,
+    });
+
+    expect(model.rows[0].warnings).toContainEqual({
+      message: "采购价异常偏低（suspicious_low）",
+      tier: "quote",
+    });
+  });
+
+  test("adds a logistics-tier warning for outlier_high price flags", () => {
+    const model = buildQuoteTableModel(quoteWithItems([{ ...panelItem, priceFlag: "outlier_high" }]), {
+      customerMode: true,
+    });
+
+    expect(model.rows[0].warnings).toContainEqual({
+      message: "采购价统计离群高值（outlier_high）",
+      tier: "logistics",
+    });
+  });
+
+  test("does not add price flag warnings when priceFlag is empty", () => {
+    const model = buildQuoteTableModel(quoteWithItems([{ ...panelItem, priceFlag: null }]), { customerMode: true });
+
+    expect(model.rows[0].warnings.some((warning) => /suspicious_|outlier_/.test(warning.message))).toBe(false);
+  });
+
   test("preview exposes the same columns and keyed cells as the shared table model", () => {
     const preview = buildQuotePreview({
       customerName: baseQuote.customerName,

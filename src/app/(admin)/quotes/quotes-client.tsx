@@ -229,6 +229,9 @@ export function QuotesClient({
       setActionError("请至少加入一个产品。");
       return;
     }
+    if (preview && !confirmSuspiciousLowExport(preview)) {
+      return;
+    }
 
     const formData = buildCurrentFormData();
     startTransition(async () => {
@@ -1455,6 +1458,26 @@ function formatPreviewCell(
     return currency ? `${value.toFixed(2)} ${currency}` : String(value);
   }
   return String(value);
+}
+
+function confirmSuspiciousLowExport(preview: QuotePreviewData): boolean {
+  const suspiciousLowCount = countSuspiciousLowWarnings(preview);
+  if (suspiciousLowCount === 0) {
+    return true;
+  }
+
+  return window.confirm(`报价单包含 ${suspiciousLowCount} 个采购价异常偏低的产品。\n确认继续生成吗？`);
+}
+
+function countSuspiciousLowWarnings(preview: QuotePreviewData): number {
+  return preview.rows.reduce(
+    (count, row) => count + row.warnings.filter((warning) => isSuspiciousLowWarning(warning)).length,
+    0,
+  );
+}
+
+function isSuspiciousLowWarning(warning: CategorizedWarning): boolean {
+  return warning.message.includes("suspicious_low");
 }
 
 function PreviewWarningBadges({

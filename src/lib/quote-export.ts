@@ -27,6 +27,7 @@ export type QuoteWorkbookItem = {
   productId?: string;
   supplierOfferId?: string;
   imagePath?: string | null;
+  priceFlag?: string | null;
   productName: string;
   category?: string | null;
   modelNo: string | null;
