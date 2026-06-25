@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
+
+import { calculateCategoryIqrStats, getIqrOutlierFlag, type CategoryIqrStats } from "../src/lib/price-anomaly-iqr";
 
 type OfferRow = {
   id: string;
@@ -22,11 +24,18 @@ type FlaggedRow = OfferRow & {
 };
 
 const DB_PATH = path.join("prisma", "dev.db");
-const REPORT_PATH = path.join("docs", "v34-price-anomaly-report.md");
+const BACKUP_DB_PATH = path.join("prisma", "dev.db.bak-v36");
+const REPORT_PATH = path.join("docs", "v36-price-anomaly-fix-report.md");
 const PRICE_FLAGS = ["suspicious_low", "suspicious_high", "outlier_low", "outlier_high"] as const;
+const OUTLIER_FLAGS = ["outlier_low", "outlier_high"] as const;
+const LINEAR_LIGHT_CATEGORY = "线条灯";
 
 function main() {
-  clearExistingFlags();
+  const beforeDbPath = existsSync(BACKUP_DB_PATH) ? BACKUP_DB_PATH : DB_PATH;
+  const beforeCounts = getFlagCounts(beforeDbPath);
+  const beforeLinearLightOutlierHigh = getCategoryFlagCount(LINEAR_LIGHT_CATEGORY, "outlier_high", beforeDbPath);
+
+  clearExistingOutlierFlags();
   applyAbsoluteThresholds();
 
   const offers = queryJson<OfferRow>(`
@@ -41,8 +50,10 @@ function main() {
     JOIN products p ON p.id = so.product_id
     WHERE CAST(so.purchase_price AS REAL) > 0
   `);
-  const medians = calculateCategoryMedians(offers);
-  applyOutlierFlags(offers, medians);
+  const categoryStats = calculateCategoryIqrStats(
+    offers.map((offer) => ({ category: categoryKey(offer.category), price: offer.purchase_price })),
+  );
+  applyOutlierFlags(offers, categoryStats);
 
   const counts = getFlagCounts();
   const totalFlagged = counts.reduce((sum, row) => sum + row.count, 0);
@@ -60,13 +71,17 @@ function main() {
     JOIN products p ON p.id = so.product_id
     WHERE so.price_flag IS NOT NULL
   `);
-  const extremeSamples = getExtremeSamples(flaggedRows, medians);
+  const afterLinearLightOutlierHigh = getCategoryFlagCount(LINEAR_LIGHT_CATEGORY, "outlier_high");
+  const extremeSamples = getExtremeSamples(flaggedRows, categoryStats);
 
   writeReport({
+    beforeCounts,
+    beforeLinearLightOutlierHigh,
     counts,
+    afterLinearLightOutlierHigh,
     totalFlagged,
     totalOffers,
-    medians,
+    categoryStats,
     extremeSamples,
   });
 
@@ -79,11 +94,11 @@ function main() {
   console.log(`report: ${REPORT_PATH}`);
 }
 
-function clearExistingFlags() {
+function clearExistingOutlierFlags() {
   runSql(`
     UPDATE supplier_offers
     SET price_flag = NULL
-    WHERE price_flag IN (${PRICE_FLAGS.map(sqlString).join(", ")});
+    WHERE price_flag IN (${OUTLIER_FLAGS.map(sqlString).join(", ")});
   `);
 }
 
@@ -91,7 +106,8 @@ function applyAbsoluteThresholds() {
   runSql(`
     UPDATE supplier_offers
     SET price_flag = 'suspicious_low'
-    WHERE CAST(purchase_price AS REAL) < 0.5;
+    WHERE price_flag IS NULL
+      AND CAST(purchase_price AS REAL) < 0.5;
 
     UPDATE supplier_offers
     SET price_flag = 'suspicious_high'
@@ -100,7 +116,7 @@ function applyAbsoluteThresholds() {
   `);
 }
 
-function applyOutlierFlags(offers: OfferRow[], medians: Map<string, number>) {
+function applyOutlierFlags(offers: OfferRow[], categoryStats: Map<string, CategoryIqrStats>) {
   const lowIds: string[] = [];
   const highIds: string[] = [];
   const alreadyFlagged = new Set(
@@ -109,11 +125,12 @@ function applyOutlierFlags(offers: OfferRow[], medians: Map<string, number>) {
 
   for (const offer of offers) {
     if (alreadyFlagged.has(offer.id)) continue;
-    const median = medians.get(categoryKey(offer.category));
-    if (!median || median <= 0) continue;
-    if (offer.purchase_price < median / 10) {
+    const stats = categoryStats.get(categoryKey(offer.category));
+    if (!stats) continue;
+    const flag = getIqrOutlierFlag(offer.purchase_price, stats);
+    if (flag === "outlier_low") {
       lowIds.push(offer.id);
-    } else if (offer.purchase_price > median * 10) {
+    } else if (flag === "outlier_high") {
       highIds.push(offer.id);
     }
   }
@@ -134,73 +151,85 @@ function updateFlagForIds(ids: string[], flag: (typeof PRICE_FLAGS)[number]) {
   }
 }
 
-function calculateCategoryMedians(offers: OfferRow[]): Map<string, number> {
-  const groups = new Map<string, number[]>();
-  for (const offer of offers) {
-    const key = categoryKey(offer.category);
-    const values = groups.get(key) ?? [];
-    values.push(offer.purchase_price);
-    groups.set(key, values);
-  }
-
-  const medians = new Map<string, number>();
-  for (const [category, prices] of groups.entries()) {
-    prices.sort((left, right) => left - right);
-    const middle = Math.floor(prices.length / 2);
-    const median = prices.length % 2 === 0 ? (prices[middle - 1] + prices[middle]) / 2 : prices[middle];
-    medians.set(category, median);
-  }
-  return medians;
-}
-
-function getFlagCounts(): FlagCount[] {
+function getFlagCounts(dbPath = DB_PATH): FlagCount[] {
   const rows = queryJson<FlagCount>(`
     SELECT price_flag, COUNT(*) AS count
     FROM supplier_offers
     WHERE price_flag IS NOT NULL
     GROUP BY price_flag
     ORDER BY price_flag
-  `);
+  `, dbPath);
   return rows.map((row) => ({ price_flag: row.price_flag, count: Number(row.count) }));
 }
 
-function getExtremeSamples(flaggedRows: FlaggedRow[], medians: Map<string, number>): FlaggedRow[] {
+function getCategoryFlagCount(category: string, flag: (typeof PRICE_FLAGS)[number], dbPath = DB_PATH): number {
+  return Number(
+    queryScalar(
+      `
+        SELECT COUNT(*)
+        FROM supplier_offers so
+        JOIN products p ON p.id = so.product_id
+        WHERE p.category = ${sqlString(category)}
+          AND so.price_flag = ${sqlString(flag)}
+      `,
+      dbPath,
+    ),
+  );
+}
+
+function getExtremeSamples(flaggedRows: FlaggedRow[], categoryStats: Map<string, CategoryIqrStats>): FlaggedRow[] {
   return [...flaggedRows]
-    .sort((left, right) => anomalyScore(right, medians) - anomalyScore(left, medians))
+    .sort((left, right) => anomalyScore(right, categoryStats) - anomalyScore(left, categoryStats))
     .slice(0, 20);
 }
 
-function anomalyScore(row: FlaggedRow, medians: Map<string, number>): number {
-  const median = medians.get(categoryKey(row.category));
-  if (!median || median <= 0 || row.purchase_price <= 0) return 0;
-  return row.purchase_price >= median ? row.purchase_price / median : median / row.purchase_price;
+function anomalyScore(row: FlaggedRow, categoryStats: Map<string, CategoryIqrStats>): number {
+  const stats = categoryStats.get(categoryKey(row.category));
+  if (!stats || row.purchase_price <= 0) return 0;
+  if (row.purchase_price > stats.upperBound && stats.upperBound > 0) {
+    return row.purchase_price / stats.upperBound;
+  }
+  if (row.purchase_price < stats.lowerBound && stats.lowerBound > 0) {
+    return stats.lowerBound / row.purchase_price;
+  }
+  return 0;
 }
 
 function writeReport(input: {
+  beforeCounts: FlagCount[];
+  beforeLinearLightOutlierHigh: number;
   counts: FlagCount[];
+  afterLinearLightOutlierHigh: number;
   totalFlagged: number;
   totalOffers: number;
-  medians: Map<string, number>;
+  categoryStats: Map<string, CategoryIqrStats>;
   extremeSamples: FlaggedRow[];
 }) {
-  const countRows = PRICE_FLAGS.map((flag) => {
+  const beforeCountRows = PRICE_FLAGS.map((flag) => {
+    const count = input.beforeCounts.find((row) => row.price_flag === flag)?.count ?? 0;
+    return `| ${flag} | ${formatInteger(count)} |`;
+  }).join("\n");
+  const afterCountRows = PRICE_FLAGS.map((flag) => {
     const count = input.counts.find((row) => row.price_flag === flag)?.count ?? 0;
     return `| ${flag} | ${formatInteger(count)} |`;
   }).join("\n");
-  const medianRows = [...input.medians.entries()]
-    .sort(([left], [right]) => left.localeCompare(right, "zh-Hans-CN"))
-    .map(([category, median]) => `| ${escapeMd(category)} | ${formatMoney(median)} |`)
+  const statRows = [...input.categoryStats.values()]
+    .sort((left, right) => left.category.localeCompare(right.category, "zh-Hans-CN"))
+    .map(
+      (stats) =>
+        `| ${escapeMd(stats.category)} | ${formatInteger(stats.count)} | ${formatMoney(stats.q1)} | ${formatMoney(stats.q3)} | ${formatMoney(stats.iqr)} | ${formatMoney(stats.lowerBound)} | ${formatMoney(stats.upperBound)} |`,
+    )
     .join("\n");
   const sampleRows = input.extremeSamples
     .map((row) => {
-      const median = input.medians.get(categoryKey(row.category));
-      return `| ${escapeMd(row.factory_name)} | ${escapeMd(row.category ?? "未分类")} | ${escapeMd(row.model_no ?? "-")} | ${escapeMd(row.product_name)} | ${formatMoney(row.purchase_price)} ${escapeMd(row.currency)} | ${escapeMd(row.price_flag)} | ${median ? formatMoney(median) : "-"} | ${formatMoney(anomalyScore(row, input.medians))}x |`;
+      const stats = input.categoryStats.get(categoryKey(row.category));
+      return `| ${escapeMd(row.factory_name)} | ${escapeMd(row.category ?? "未分类")} | ${escapeMd(row.model_no ?? "-")} | ${escapeMd(row.product_name)} | ${formatMoney(row.purchase_price)} ${escapeMd(row.currency)} | ${escapeMd(row.price_flag)} | ${stats ? formatMoney(stats.lowerBound) : "-"} | ${stats ? formatMoney(stats.upperBound) : "-"} | ${formatMoney(anomalyScore(row, input.categoryStats))}x |`;
     })
     .join("\n");
 
   writeFileSync(
     REPORT_PATH,
-    `# V34 价格异常检测报告
+    `# V36 价格异常检测修复报告
 
 ## 汇总
 
@@ -209,34 +238,48 @@ function writeReport(input: {
 | total offers | ${formatInteger(input.totalOffers)} |
 | total flagged | ${formatInteger(input.totalFlagged)} |
 
-## Flag 数量
+## 修复前 Flag 数量
 
 | price_flag | 数量 |
 | --- | ---: |
-${countRows}
+${beforeCountRows}
 
-## 品类中位数价格
+## 修复后 Flag 数量
 
-| 品类 | median purchase_price |
+| price_flag | 数量 |
 | --- | ---: |
-${medianRows}
+${afterCountRows}
+
+## 线条灯 outlier_high 变化
+
+| 指标 | 数量 |
+| --- | ---: |
+| before | ${formatInteger(input.beforeLinearLightOutlierHigh)} |
+| after | ${formatInteger(input.afterLinearLightOutlierHigh)} |
+| delta | ${formatInteger(input.afterLinearLightOutlierHigh - input.beforeLinearLightOutlierHigh)} |
+
+## 品类 IQR 阈值
+
+| 品类 | 样本数 | Q1 | Q3 | IQR | 下界 | 上界 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+${statRows}
 
 ## 最极端异常价格样本 Top 20
 
-| 工厂 | 品类 | model_no | product_name | price | flag | category median | score |
-| --- | --- | --- | --- | ---: | --- | ---: | ---: |
+| 工厂 | 品类 | model_no | product_name | price | flag | IQR lower | IQR upper | score |
+| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: |
 ${sampleRows}
 `,
   );
 }
 
-function queryJson<T>(sql: string): T[] {
-  const output = execFileSync("sqlite3", ["-json", DB_PATH, sql], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 }).trim();
+function queryJson<T>(sql: string, dbPath = DB_PATH): T[] {
+  const output = execFileSync("sqlite3", ["-json", dbPath, sql], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 }).trim();
   return output ? (JSON.parse(output) as T[]) : [];
 }
 
-function queryScalar(sql: string): string {
-  return execFileSync("sqlite3", [DB_PATH, sql], { encoding: "utf8", maxBuffer: 1024 * 1024 }).trim();
+function queryScalar(sql: string, dbPath = DB_PATH): string {
+  return execFileSync("sqlite3", [dbPath, sql], { encoding: "utf8", maxBuffer: 1024 * 1024 }).trim();
 }
 
 function runSql(sql: string) {
