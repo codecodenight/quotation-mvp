@@ -251,7 +251,7 @@ async function embedProductImages(
     try {
       const buffer = await readFile(imagePath);
       const imageId = workbook.addImage({
-        buffer,
+        buffer: buffer as unknown as ArrayBuffer,
         extension: imageExtensionFromPath(imagePath),
       });
       sheet.addImage(imageId, {

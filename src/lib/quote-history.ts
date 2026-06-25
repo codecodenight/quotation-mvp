@@ -181,7 +181,6 @@ function serializeQuoteDetailItem(item: QuoteDetailItemRow): QuoteDetailItem {
       purchasePrice: item.purchasePrice,
       purchaseCurrency: item.purchaseCurrency,
       salePrice,
-      quantity: item.quantity,
       moq: item.supplierOffer?.moq ?? null,
       ctnQty: item.supplierOffer?.ctnQty ?? null,
       ctnLength: item.supplierOffer?.ctnLength ?? null,

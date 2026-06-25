@@ -11,6 +11,7 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     pool: "forks",
+    // @ts-expect-error maxForks exists at runtime in vitest 4 but is missing from type defs
     maxForks: 2,
   },
 });
