@@ -21,6 +21,7 @@ export type QuotePreviewInput = {
   currency: string;
   profitMargin: string | number | { toString(): string };
   exchangeRate: string | number | { toString(): string } | null;
+  customerMode?: boolean;
   items: QuotePreviewItem[];
 };
 
@@ -48,6 +49,7 @@ export type QuotePreviewData = {
   currency: string;
   profitMargin: number;
   exchangeRate: number | null;
+  customerMode: boolean;
   purchaseCurrency: string;
   rows: QuotePreviewRow[];
   totalWarnings: number;
@@ -111,6 +113,7 @@ export function buildQuotePreview(input: QuotePreviewInput): QuotePreviewData {
     currency: input.currency,
     profitMargin: Number(input.profitMargin.toString()),
     exchangeRate: input.exchangeRate === null ? null : Number(input.exchangeRate.toString()),
+    customerMode: input.customerMode !== false,
     purchaseCurrency: buildPurchaseCurrencyLabel(input.items),
     rows,
     totalWarnings: rows.reduce((sum, row) => sum + row.warnings.length, 0),

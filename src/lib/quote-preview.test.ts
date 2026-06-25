@@ -5,6 +5,31 @@ import { buildQuotePreview } from "./quote-preview";
 const issue = (message: string, tier: "customer" | "quote" | "logistics") => ({ message, tier });
 
 describe("buildQuotePreview", () => {
+  test("defaults preview to customer mode", () => {
+    const preview = buildQuotePreview({
+      customerName: "ACME",
+      currency: "USD",
+      profitMargin: "0.2",
+      exchangeRate: "7.2",
+      items: [],
+    });
+
+    expect(preview.customerMode).toBe(true);
+  });
+
+  test("preserves internal mode for preview consumers", () => {
+    const preview = buildQuotePreview({
+      customerName: "Internal",
+      currency: "USD",
+      profitMargin: "0.2",
+      exchangeRate: "7.2",
+      customerMode: false,
+      items: [],
+    });
+
+    expect(preview.customerMode).toBe(false);
+  });
+
   test("builds browser preview rows with the same display rules as quote export", () => {
     const preview = buildQuotePreview({
       customerName: "ACME",

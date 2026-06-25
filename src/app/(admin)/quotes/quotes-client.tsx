@@ -1318,6 +1318,8 @@ function QuotePreviewPanel({
             <tr>
               <th className="px-3 py-3">Model Name</th>
               <th className="px-3 py-3">Product Details</th>
+              {!preview.customerMode ? <th className="px-3 py-3">Factory</th> : null}
+              {!preview.customerMode ? <th className="px-3 py-3 text-right">采购价</th> : null}
               <th className="px-3 py-3 text-right">Unit Price</th>
               <th className="px-3 py-3">MOQ</th>
               <th className="px-3 py-3">CTN Qty</th>
@@ -1331,11 +1333,11 @@ function QuotePreviewPanel({
           </thead>
           <tbody className="divide-y divide-line bg-white">
             {visibleRows.map((row) => (
-              <PreviewRow key={`${row.productId}:${row.supplierOfferId}`} row={row} />
+              <PreviewRow key={`${row.productId}:${row.supplierOfferId}`} row={row} customerMode={preview.customerMode} />
             ))}
             {visibleRows.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-stone-500" colSpan={11}>
+                <td className="px-3 py-8 text-center text-stone-500" colSpan={preview.customerMode ? 11 : 13}>
                   当前没有匹配的警告行。
                 </td>
               </tr>
@@ -1373,7 +1375,7 @@ function QuotePreviewPanel({
   );
 }
 
-function PreviewRow({ row }: { row: QuotePreviewRow }) {
+function PreviewRow({ row, customerMode }: { row: QuotePreviewRow; customerMode: boolean }) {
   const highestTier = getHighestWarningTier(row.warnings);
   const groupedWarnings = groupWarningsByTier(row.warnings);
 
@@ -1381,6 +1383,8 @@ function PreviewRow({ row }: { row: QuotePreviewRow }) {
     <tr className={`align-top ${highestTier ? WARNING_TIER_META[highestTier].rowClass : ""}`}>
       <td className="min-w-36 px-3 py-3 font-semibold text-ink">{row.modelNo || "-"}</td>
       <td className="max-w-sm whitespace-pre-line px-3 py-3 text-stone-700">{row.productDetails || "-"}</td>
+      {!customerMode ? <td className="px-3 py-3 text-stone-600">{row.factoryName}</td> : null}
+      {!customerMode ? <td className="px-3 py-3 text-right font-mono text-stone-600">{row.purchasePrice}</td> : null}
       <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-ink">{row.salePriceDisplay}</td>
       <td className="whitespace-nowrap px-3 py-3">{row.moq || "-"}</td>
       <td className="whitespace-nowrap px-3 py-3">{row.ctnQty || "-"}</td>

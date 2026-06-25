@@ -118,6 +118,7 @@ export async function previewQuote(formData: FormData): Promise<QuotePreviewData
     currency: input.currency,
     profitMargin: input.profitMargin,
     exchangeRate: input.exchangeRate,
+    customerMode: input.customerMode,
     items: quoteItems.map(({ offer, quantity, remark }) => ({
       productId: offer.productId,
       supplierOfferId: offer.id,
