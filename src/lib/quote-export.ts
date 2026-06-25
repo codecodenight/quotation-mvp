@@ -11,6 +11,8 @@ export { buildProductDetails, calcVolume, cleanMoq, formatDimension } from "./qu
 let excelJsModule: typeof ExcelJSNamespace | null = null;
 
 function getExcelJS(): typeof ExcelJSNamespace {
+  // exceljs' browser bundle is CommonJS-only and avoids bundling Node-only workbook readers.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   excelJsModule ??= require("exceljs/dist/exceljs.min.js") as typeof ExcelJSNamespace;
   return excelJsModule;
 }
@@ -331,7 +333,6 @@ function writeHeaderRows(
   const cartonEndColumnIndex = cartonStartColumnIndex + 3;
 
   for (let columnNumber = 1; columnNumber <= lastColumnIndex; columnNumber += 1) {
-    const key = columns[columnNumber - 1].key;
     const header = columns[columnNumber - 1].header;
 
     if (columnNumber < cartonStartColumnIndex || columnNumber > cartonEndColumnIndex) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, type ReactNode, useEffect, useRef, useState, useTransition } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
@@ -1514,10 +1515,13 @@ function formatPreviewCell(
       return <span className="text-stone-400">-</span>;
     }
     return (
-      <img
+      <Image
         src={`/api/products/${row.productId}/image`}
-        alt=""
+        alt="产品图"
+        width={48}
+        height={48}
         loading="lazy"
+        unoptimized
         className="mx-auto h-12 w-12 rounded-sm border border-stone-200 bg-white object-contain"
       />
     );

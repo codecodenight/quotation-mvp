@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import type { ProductDetailsParam } from "./product-details-builder";
-import { buildProductDetails } from "./quote-export";
+import { buildProductDetails } from "./quote-table-model";
 
 export type QuoteSearchFilters = {
   customerName?: string;
