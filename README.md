@@ -138,6 +138,7 @@ Key context files:
 
 - `AGENTS.md` — project rules, constraints, data model decisions, phase history
 - `docs/HANDOFF.md` — current project state, roadmap, and reasoning for future contributors
+- `docs/release-readiness-checklist.md` — Beta/private release readiness gates and evidence checklist
 - `docs/project-brief.md` — original business background
 - `docs/phase0-spike-report.md` — initial Excel feasibility spike
 
@@ -157,4 +158,3 @@ Recent import and parameter pipeline reports live under `docs/`, including:
 - Treat `supplier_offers.purchase_price` as factory purchase cost, not customer sale price.
 - Historical customer quotes are modeled separately from system-generated quotes.
 - Prefer small, auditable scripts for one-off data migrations and write reports under `docs/`.
-

@@ -1,7 +1,7 @@
 import type {
   ChatCompletion,
   ChatCompletionCreateParamsNonStreaming,
-} from "openai/resources/chat/completions";
+} from "@/lib/chat-llm-types";
 
 export const DEEPSEEK_MODEL = "deepseek-v4-flash";
 

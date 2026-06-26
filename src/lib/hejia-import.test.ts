@@ -1,9 +1,18 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { buildHejiaImportRows, buildHejiaSupplierOfferRemark } from "./hejia-import";
 import { readSheetRows } from "./excel-import";
+
+const realHejiaSampleFiles = [
+  "核价- Quotation- LED Solar Wall Light & Garden Light - 20240521.xlsx",
+  "核价 220V LED Strips - Wellux 20251125.xlsx",
+  "核价Wellux Quotation of led spotlight 20240229 (1).xlsx",
+];
+const realHejiaSampleDir = join(process.cwd(), "sample-data", "hejia");
+const hasRealHejiaSamples = realHejiaSampleFiles.every((file) => existsSync(join(realHejiaSampleDir, file)));
 
 describe("buildHejiaImportRows", () => {
   test("merges multiple description columns and reports skipped non-data rows", () => {
@@ -268,7 +277,7 @@ describe("buildHejiaImportRows", () => {
     expect(buildHejiaSupplierOfferRemark({ customerUsdPrice: null, coefficient: null })).toBeNull();
   });
 
-  test("maps the three real hejia samples with different header rows and column positions", () => {
+  test.skipIf(!hasRealHejiaSamples)("maps the three real hejia samples with different header rows and column positions", () => {
     const root = process.cwd();
     const cases = [
       {

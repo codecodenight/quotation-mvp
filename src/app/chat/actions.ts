@@ -3,7 +3,7 @@
 import type {
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
-} from "openai/resources/chat/completions";
+} from "@/lib/chat-llm-types";
 
 import { createQuote, previewQuote } from "@/app/(admin)/quotes/actions";
 import {

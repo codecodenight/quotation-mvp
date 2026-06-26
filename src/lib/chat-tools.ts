@@ -1,4 +1,4 @@
-import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "@/lib/chat-llm-types";
 import { Prisma } from "@prisma/client";
 
 import { rankOffers, type OfferBadge } from "@/lib/offer-ranking";
