@@ -14,6 +14,7 @@ const config: Config = {
         line: "#ddd8cc",
         brass: "#a36f2d",
         leaf: "#315b48",
+        cream: "#f0ebe0",
       },
       boxShadow: {
         panel: "0 1px 2px rgba(22, 22, 22, 0.08)",
