@@ -27,6 +27,20 @@ Source code editing requires the user to say **"执行"** or **"implementation m
 - Codex reads the task file + `AGENTS.md` and executes
 - After Codex completes, review the diff and update `docs/HANDOFF.md`
 
+## Agent skills
+
+### Issue tracker
+
+Work is tracked in repo-local markdown: existing Codex execution tasks stay in `docs/codex-task-*.md`, and Matt Pocock skills may publish feature-scoped PRDs/issues under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default Matt Pocock triage role names are used when local markdown issues need status labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo: shared language belongs in root `CONTEXT.md`, with architectural decisions in `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Key Project Facts
 
 - Local-only tool. No cloud, no auth, no SaaS.
