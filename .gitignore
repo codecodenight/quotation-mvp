@@ -27,3 +27,7 @@ data/source-archive/
 logs/
 *.log
 deploy/.htpasswd
+
+# macOS Finder/iCloud duplicate files (break Next.js routing; see V44)
+* 2.*
+* 2/

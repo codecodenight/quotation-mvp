@@ -104,7 +104,7 @@ export default async function ImportPage({ searchParams }: ImportPageProps) {
               {selectedHeaderRowIndex ? (
                 <input type="hidden" name="headerRowIndex" value={selectedHeaderRowIndex} />
               ) : null}
-              <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">切换模式</button>
+              <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">切换模式</button>
             </form>
           </StepCard>
 
@@ -119,7 +119,7 @@ export default async function ImportPage({ searchParams }: ImportPageProps) {
                   </option>
                 ))}
               </select>
-              <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">读取文件</button>
+              <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">读取文件</button>
             </form>
           </StepCard>
 
@@ -135,7 +135,7 @@ export default async function ImportPage({ searchParams }: ImportPageProps) {
                     </option>
                   ))}
                 </select>
-                <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">确认 Sheet</button>
+                <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">确认 Sheet</button>
               </form>
             ) : (
               <Muted>先选择 Excel 文件。</Muted>
@@ -156,7 +156,7 @@ export default async function ImportPage({ searchParams }: ImportPageProps) {
                     </option>
                   ))}
                 </select>
-                <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">生成预览</button>
+                <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">生成预览</button>
               </form>
             ) : (
               <Muted>先选择 sheet。</Muted>
@@ -304,7 +304,7 @@ function FactoryMappingForm({
         </Field>
       </div>
 
-      <button className="mt-5 h-11 rounded-md bg-ink px-5 text-sm font-semibold text-white">
+      <button className="mt-5 h-11 rounded-md bg-primary hover:bg-primary-hover px-5 text-sm font-semibold text-white">
         写入 raw_products
       </button>
     </form>
@@ -384,7 +384,7 @@ function HejiaMappingForm({
         </Field>
       </div>
 
-      <button className="mt-5 h-11 rounded-md bg-ink px-5 text-sm font-semibold text-white">
+      <button className="mt-5 h-11 rounded-md bg-primary hover:bg-primary-hover px-5 text-sm font-semibold text-white">
         直接写入产品和工厂报价
       </button>
     </form>
@@ -411,9 +411,9 @@ function PreviewTable({
       </div>
       <div className="overflow-auto bg-white">
         <table className="w-full border-collapse text-left text-xs">
-          <thead className="bg-[#ebe5d8] text-stone-600">
+          <thead className="bg-cream text-stone-600">
             <tr>
-              <th className="sticky left-0 border-r border-line bg-[#ebe5d8] px-2 py-2">行</th>
+              <th className="sticky left-0 border-r border-line bg-cream px-2 py-2">行</th>
               {Array.from({ length: maxColumns }, (_, index) => (
                 <th key={index} className="whitespace-nowrap px-2 py-2">
                   {columnLabel(index)}
@@ -478,7 +478,7 @@ function StepCard({ step, title, children }: { step: string; title: string; chil
   return (
     <section className="rounded-md border border-line bg-paper p-4 shadow-panel">
       <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-xs font-semibold text-white">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary hover:bg-primary-hover text-xs font-semibold text-white">
           {step}
         </span>
         <h2 className="font-semibold text-ink">{title}</h2>

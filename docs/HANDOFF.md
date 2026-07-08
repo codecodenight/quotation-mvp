@@ -1,9 +1,42 @@
 # HANDOFF.md — Session Context for Cold Start
 
-Last updated: 2026-06-26
-Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V45
+Last updated: 2026-07-07
+Source: Claude web chat + Claude Code/Codex sessions covering V1.3 → V48
 
 This file captures decisions, context, and reasoning that cannot be inferred from the codebase alone. Read this before making architectural decisions.
+
+---
+
+## 2026-07-07 Session (Claude Fable 5): Chat UI 改版 + V46-V48
+
+### 完成内容
+- **V45.1 Chat UI 全面改版**（渐变紫色调）：欢迎页居中布局（logo + 快捷提示卡 + 居中输入框）→ 发消息后切换对话模式；用户消息紫色渐变气泡右对齐、助手消息带 avatar 左对齐；`h-screen` 视口锁定（header/输入框固定，消息区内部滚动）；玻璃磨砂 header；fade-in-up 动画。面试 demo 截图在 `~/Desktop/quotation-demo-screenshots/`。任务文档：`docs/codex-task-v45.1-chat-ui-redesign.md`。**注意：UI 评审结论（2026-07-07）——紫色渐变用量过大、与 admin 纸质风格割裂，待 DESIGN.md 统一（见任务文档 Do/Don't）**
+- **V47 Chat 流式输出**：新增 `/chat/api/stream` NDJSON 流式路由（`src/app/chat/api/stream/route.ts`），`createDeepSeekChatStream()` in `deepseek.ts`；事件协议 status/delta/tool_result/done/error；前端逐字渲染 + 工具执行状态提示。旧 `sendChatMessage` Server Action 保留未删。任务文档：`docs/codex-task-v47-chat-streaming.md`
+- **V48 历史报价半自动匹配**（原 V5.5 计划）：`/customer-quotes/matching` 工作台，`customer-quote-matching.ts` 纯函数打分（exact 100 / contains 70-90 / prefix 40-69 / watts+品类 40，取 Top 3，阈值 40），11 个单测；一键确认复用 `bindCustomerQuoteRowToProduct`。验证时有 1657 条 rawModel 非空的未匹配行。任务文档：`docs/codex-task-v48-matching-workbench.md`
+- **V49 客户实体管理**（原 V3.1 计划）：`customers` 表（手动 SQL 建表，**注意：本库无 _prisma_migrations 表，不能用 prisma migrate，用 sqlite3 直接执行 DDL + prisma generate**）；`scripts/v49-backfill-customers.ts` 回填 41 个客户；`/customers` 列表 + `/customers/[id]` 详情（按名字+别名聚合 quotes 和历史报价行）；sidebar 加"客户管理"入口。报价创建流程未动（仍是自由文本客户名，实体只做聚合视图）。任务文档：`docs/codex-task-v49-customer-entity.md`
+- **V46 数据补全**：`scripts/v46-data-gap-fill.ts`（dry-run 默认，--apply 执行）；已应用 690 条 CTN 补全（同产品 offer 互补 + 已绑定历史行回填）；报告在 `docs/v46-data-gap-report.md`；缺图片 2587/9807，补后仍缺 CTN 6589 条。任务文档：`docs/codex-task-v46-data-gap-fill.md`
+- **代码去重**：`buildParamFilter`/`buildProductIdsFilter`/`intersectProductIdFilters` 抽到 `src/lib/product-where-filters.ts`，quotes/page.tsx 和 chat-tools.ts 共用
+- **防复发**：`.gitignore` 加 `* 2.*` 规则（macOS 重复文件曾再次破坏构建，已二次清理）
+
+### 已知坑（本次踩过）
+- Next.js 15.5 Turbopack dev 模式 HMR 后报 "global-error.js not in React Client Manifest" 500——重启 dev server 或用生产构建绕过
+- `prisma migrate dev` 会挂起（无 _prisma_migrations 表 + 交互提示 + 可能的 SQLite 锁）；`prisma generate` 也慢，用 `CHECKPOINT_DISABLE=1` 后台跑
+- DB 备份：`prisma/dev.db.bak-v45-pre-customer`、`prisma/dev.db.bak-v46-pre-ctn-fill`
+
+### 同日第二批（V50-V53）
+- **V50 DESIGN.md + 全站视觉统一**：根目录新增 `DESIGN.md`（violet 主色 Linear 式克制规范，所有 UI 改动必须遵守）；tailwind token 值替换一次迁移全站（ink/paper/line/cream/leaf 重指 slate/violet 系）；深色表头/深色按钮/米色底/玻璃拟态/渐变全部收敛（渐变仅剩 chat 欢迎页 logo）；emoji 工具标签 → lucide。任务文档：`docs/codex-task-v50-design-system.md`
+- **V51 报价单状态流转**：quotes.status（draft/sent/won/lost，sqlite3 直接 DDL + 备份 bak-v51-pre-status）；报价历史内联状态 select（乐观更新）。任务文档：`docs/codex-task-v51-quote-status.md`
+- **V52 客户历史价提示**：报价编辑时当前客户名与产品历史报价客户模糊匹配 → 已选产品行高亮"上次给 X 报过 $Y"。任务文档：`docs/codex-task-v52-customer-history-hint.md`
+- **V53 网页版报价单**：`/quote/[id]` 客户视角报价页（隐藏采购价/工厂）+ 打印存 PDF；报价详情面板加"网页版"入口。**品类完整度评分发现 V4.4c 已实现，未重复做**。任务文档：`docs/codex-task-v53-web-quote.md`。⚠️ 发链接给客户前需处理 Basic Auth 放行
+- 全量验证：212 测试（208 过/1 修复/3 skip）、生产构建通过、四张验证截图在 ~/Desktop/quotation-demo-screenshots/v50-*.png
+
+### 下一步建议
+- 匹配工作台跑一轮实际匹配（1657 条候选待人工确认）
+- 报价历史加状态筛选器 + 概览页成交率统计卡（V51 的延伸）
+- 客户实体别名合并 UI（aliases 字段已支持 JSON 数组，暂无编辑界面）
+- 缺图 2587 产品按 v46 报告的源文件分组批量补提取
+- `/quote/*` 对客户放行方案（签名 token 或 nginx 例外）
+- 部署腾讯云（用户自行操作）
 
 ---
 

@@ -25,11 +25,18 @@ import {
   type QuoteSelectionProduct,
   type SelectedQuoteItem,
 } from "@/lib/quote-selection";
-import { createQuote, getQuoteDetail, previewQuote, reuseQuote, searchQuotes } from "./actions";
+import { createQuote, getQuoteDetail, previewQuote, reuseQuote, searchQuotes, updateQuoteStatus } from "./actions";
 
 export type QuoteProductOption = QuoteSelectionProduct;
 
 export type QuoteHistoryRow = QuoteSearchResult;
+
+const QUOTE_STATUS_META: Record<QuoteHistoryRow["status"], { label: string; className: string }> = {
+  draft: { label: "草稿", className: "border-line bg-cream text-slate-600" },
+  sent: { label: "已发送", className: "border-primary-border bg-primary-subtle text-primary" },
+  won: { label: "成交", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  lost: { label: "流失", className: "border-red-200 bg-red-50 text-red-600" },
+};
 
 export type QuoteFilters = {
   search: string;
@@ -533,7 +540,7 @@ export function QuotesClient({
               <input name="factory" defaultValue={filters.factory} placeholder="工厂名" className={inputClass} />
             </Field>
             <div className="flex items-end">
-              <button className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white">
+              <button className="inline-flex h-10 items-center gap-2 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">
                 <Search className="h-4 w-4" aria-hidden="true" />
                 筛选
               </button>
@@ -656,6 +663,7 @@ export function QuotesClient({
             <div className="space-y-4">
               <SelectedProductsTable
                 selectedItems={selectedItems}
+                customerName={customerName}
                 onUpdate={updateSelectedItem}
                 onRemove={removeSelectedProduct}
               />
@@ -718,10 +726,12 @@ export function QuotesClient({
 
 function SelectedProductsTable({
   selectedItems,
+  customerName,
   onUpdate,
   onRemove,
 }: {
   selectedItems: Map<string, SelectedQuoteItem>;
+  customerName: string;
   onUpdate: (productId: string, updater: (item: SelectedQuoteItem) => SelectedQuoteItem) => void;
   onRemove: (productId: string) => void;
 }) {
@@ -753,7 +763,7 @@ function SelectedProductsTable({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-[#ebe5d8] text-xs uppercase tracking-[0.08em] text-stone-600">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-stone-600">
             <tr>
               <th className="px-3 py-3">产品</th>
               <th className="px-3 py-3">Supplier Offer</th>
@@ -797,6 +807,7 @@ function SelectedProductsTable({
                         }))
                       }
                     />
+                    <CustomerHistoryHint quotes={product.historicalQuotes ?? []} customerName={customerName} />
                     <HistoricalPriceReference quotes={product.historicalQuotes ?? []} />
                   </td>
                   <td className="w-28 px-3 py-3">
@@ -882,7 +893,7 @@ function ProductSelectionTable({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-[#ebe5d8] text-xs uppercase tracking-[0.08em] text-stone-600">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-stone-600">
             <tr>
               <th className="px-3 py-3">操作</th>
               <th className="px-3 py-3">产品</th>
@@ -910,7 +921,7 @@ function ProductSelectionTable({
                         type="button"
                         disabled={product.supplierOffers.length === 0}
                         onClick={() => onAdd(product)}
-                        className="inline-flex h-9 items-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex h-9 items-center gap-2 rounded-md bg-primary hover:bg-primary-hover px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Plus className="h-4 w-4" aria-hidden="true" />
                         加入
@@ -1049,6 +1060,33 @@ function SelectedOfferPicker({
           })}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CustomerHistoryHint({
+  quotes,
+  customerName,
+}: {
+  quotes: NonNullable<QuoteProductOption["historicalQuotes"]>;
+  customerName: string;
+}) {
+  const target = customerName.trim().toLowerCase();
+  if (target.length < 2) {
+    return null;
+  }
+  const match = quotes.find((quote) => {
+    const historical = quote.customerName?.trim().toLowerCase();
+    return historical && (historical.includes(target) || target.includes(historical));
+  });
+  if (!match) {
+    return null;
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-primary-border bg-primary-subtle px-2 py-1.5 text-xs text-slate-700">
+      <span className="font-semibold text-primary">上次给 {match.customerName} 报过</span>
+      <span className="font-semibold tabular-nums text-ink">{formatHistoricalUsd(match.salePriceUsd)}</span>
+      <span className="text-slate-500">({formatHistoricalQuoteDate(match.quoteDate)})</span>
     </div>
   );
 }
@@ -1305,7 +1343,7 @@ function QuoteParameterPanel({
           type="button"
           disabled={isPending}
           onClick={onPreview}
-          className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
           {isPending ? "生成预览中..." : "预览报价"}
@@ -1391,7 +1429,7 @@ function QuotePreviewPanel({
 
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-[#3F4A35] text-xs uppercase tracking-[0.08em] text-white">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-slate-600">
             <tr>
               {preview.columns.map((column) => (
                 <th key={column.key} className={getPreviewHeaderClass(column)}>
@@ -1434,7 +1472,7 @@ function QuotePreviewPanel({
             type="button"
             disabled={isPending}
             onClick={onExport}
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
             {isPending ? "正在导出..." : "确认导出"}
@@ -1672,7 +1710,7 @@ function QuoteHistoryTable({
             <button
               type="submit"
               disabled={isPending}
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Search className="h-4 w-4" aria-hidden="true" />
               {isPending ? "搜索中..." : "搜索"}
@@ -1687,10 +1725,11 @@ function QuoteHistoryTable({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-[#ebe5d8] text-xs uppercase tracking-[0.08em] text-stone-600">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-stone-600">
             <tr>
               <th className="px-3 py-3">展开</th>
               <th className="px-3 py-3">客户</th>
+              <th className="px-3 py-3">状态</th>
               <th className="px-3 py-3">日期</th>
               <th className="px-3 py-3">币种</th>
               <th className="px-3 py-3">利润率</th>
@@ -1720,7 +1759,7 @@ function QuoteHistoryTable({
             })}
             {quotes.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-stone-500" colSpan={8}>
+                <td className="px-3 py-8 text-center text-stone-500" colSpan={9}>
                   未找到匹配的历史报价。
                 </td>
               </tr>
@@ -1767,6 +1806,9 @@ function QuoteHistoryRowView({
           </button>
         </td>
         <td className="px-3 py-3 font-semibold text-ink">{quote.customerName}</td>
+        <td className="whitespace-nowrap px-3 py-3">
+          <QuoteStatusSelect quoteId={quote.id} status={quote.status} />
+        </td>
         <td className="whitespace-nowrap px-3 py-3">{formatDateTime(new Date(quote.createdAt))}</td>
         <td className="px-3 py-3">{quote.currency}</td>
         <td className="px-3 py-3">{formatPercent(quote.profitMargin)}</td>
@@ -1778,7 +1820,7 @@ function QuoteHistoryRowView({
       </tr>
       {expanded ? (
         <tr>
-          <td colSpan={8} className="bg-stone-50 px-4 py-4">
+          <td colSpan={9} className="bg-stone-50 px-4 py-4">
             {detail ? (
               <QuoteDetailPanel detail={detail} reusing={reusing} onReuse={onReuse} />
             ) : (
@@ -1811,6 +1853,15 @@ function QuoteDetailPanel({
           {detail.currency}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={`/quote/${detail.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-stone-700 hover:border-leaf"
+          >
+            <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+            网页版
+          </a>
           {detail.filePath && detail.fileExists ? (
             <a
               href={`/api/quotes/${detail.id}/download`}
@@ -1837,7 +1888,7 @@ function QuoteDetailPanel({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-[#3F4A35] text-xs uppercase tracking-[0.08em] text-white">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-slate-600">
             <tr>
               <th className="px-3 py-3">Model Name</th>
               <th className="px-3 py-3">Product Details</th>
@@ -2072,5 +2123,40 @@ function countWarningsByTier(warnings: CategorizedWarning[]): Record<WarningTier
       return counts;
     },
     { customer: 0, quote: 0, logistics: 0 } as Record<WarningTier, number>,
+  );
+}
+
+function QuoteStatusSelect({ quoteId, status }: { quoteId: string; status: QuoteHistoryRow["status"] }) {
+  const [current, setCurrent] = useState(status);
+  const [isSaving, startSaveTransition] = useTransition();
+  const meta = QUOTE_STATUS_META[current];
+
+  function onChange(next: string) {
+    const previous = current;
+    setCurrent(next as QuoteHistoryRow["status"]);
+    startSaveTransition(async () => {
+      try {
+        const saved = await updateQuoteStatus(quoteId, next);
+        setCurrent(saved);
+      } catch {
+        setCurrent(previous);
+      }
+    });
+  }
+
+  return (
+    <select
+      value={current}
+      disabled={isSaving}
+      onChange={(event) => onChange(event.target.value)}
+      onClick={(event) => event.stopPropagation()}
+      className={`h-7 cursor-pointer appearance-none rounded-md border px-2 text-xs font-semibold outline-none disabled:opacity-60 ${meta.className}`}
+    >
+      {Object.entries(QUOTE_STATUS_META).map(([value, option]) => (
+        <option key={value} value={value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }

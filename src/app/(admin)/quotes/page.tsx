@@ -15,6 +15,11 @@ import {
   getVoltageOptions,
   parseOptionalNonNegativeDecimal,
 } from "@/lib/product-filters";
+import {
+  buildParamFilter,
+  buildProductIdsFilter,
+  intersectProductIdFilters,
+} from "@/lib/product-where-filters";
 import { prisma } from "@/lib/prisma";
 import { buildQuoteSearchWhere, serializeQuoteSearchResult } from "@/lib/quote-history";
 import { QuotesClient, type QuoteFilters, type QuoteHistoryRow, type QuoteProductOption } from "./quotes-client";
@@ -84,7 +89,6 @@ type QuotesPageProps = {
 const MAX_PRODUCTS_FOR_SORTING = 200;
 const PRODUCT_RESULT_LIMIT = 50;
 const MAX_SORTABLE_PRICE = 10_000;
-const PRODUCT_ID_FILTER_CHUNK_SIZE = 400;
 
 export default async function QuotesPage({ searchParams }: QuotesPageProps) {
   const params = await searchParams;
@@ -319,41 +323,6 @@ function buildProductWhere(filters: QuoteFilters, productIds: string[] | null): 
   return and.length > 0 ? { AND: and } : {};
 }
 
-function buildProductIdsFilter(productIds: string[]): Prisma.ProductWhereInput {
-  if (productIds.length <= PRODUCT_ID_FILTER_CHUNK_SIZE) {
-    return { id: { in: productIds } };
-  }
-
-  const chunks: Prisma.ProductWhereInput[] = [];
-  for (let index = 0; index < productIds.length; index += PRODUCT_ID_FILTER_CHUNK_SIZE) {
-    chunks.push({ id: { in: productIds.slice(index, index + PRODUCT_ID_FILTER_CHUNK_SIZE) } });
-  }
-  return { OR: chunks };
-}
-
-function buildParamFilter(paramKey: string, filterValue: string): Prisma.ProductWhereInput {
-  return {
-    OR: [
-      {
-        params: {
-          some: {
-            paramKey,
-            normalizedValue: filterValue,
-          },
-        },
-      },
-      {
-        params: {
-          none: {
-            paramKey,
-            normalizedValue: { not: null },
-          },
-        },
-      },
-    ],
-  };
-}
-
 function hasProductIdFilter(filters: QuoteFilters): boolean {
   return (
     parseOptionalNonNegativeDecimal(filters.minWatts) !== null ||
@@ -361,13 +330,6 @@ function hasProductIdFilter(filters: QuoteFilters): boolean {
     parseOptionalNonNegativeDecimal(filters.minEfficacy) !== null ||
     parseOptionalNonNegativeDecimal(filters.maxEfficacy) !== null
   );
-}
-
-function intersectProductIdFilters(left: string[] | null, right: string[] | null): string[] | null {
-  if (left === null) return right;
-  if (right === null) return left;
-  const rightIds = new Set(right);
-  return left.filter((id) => rightIds.has(id));
 }
 
 function getProductOrderBy(sort: string): Prisma.ProductOrderByWithRelationInput[] | undefined {

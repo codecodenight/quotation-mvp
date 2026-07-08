@@ -134,7 +134,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               <input name="factory" defaultValue={filters.factory} placeholder="工厂名" className={inputClass} />
             </Field>
             <div className="flex items-end">
-              <button className="h-10 w-full rounded-md bg-ink px-4 text-sm font-semibold text-white">筛选</button>
+              <button className="h-10 w-full rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">筛选</button>
             </div>
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-7">
@@ -302,7 +302,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
 
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">
-                <thead className="bg-[#ebe5d8] text-xs uppercase tracking-[0.08em] text-stone-600">
+                <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-stone-600">
                   <tr>
                     <th className="px-3 py-3">推荐</th>
                     <th className="px-3 py-3">工厂</th>
@@ -462,7 +462,7 @@ function ProductForm({
       <Field label="备注">
         <textarea name="remark" defaultValue={product?.remark ?? ""} className={textAreaClass} />
       </Field>
-      <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">{submitLabel}</button>
+      <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">{submitLabel}</button>
     </form>
   );
 }
@@ -530,7 +530,7 @@ function OfferForm({
       <Field label="备注">
         <textarea name="remark" defaultValue={offer?.remark ?? ""} className={textAreaClass} />
       </Field>
-      <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">{submitLabel}</button>
+      <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">{submitLabel}</button>
     </form>
   );
 }

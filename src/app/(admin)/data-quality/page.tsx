@@ -84,7 +84,7 @@ export default async function DataQualityPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="bg-[#3F4A35] text-xs uppercase tracking-[0.08em] text-white">
+            <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-slate-600">
               <tr>
                 <th className="px-3 py-3">品类</th>
                 <th className="px-3 py-3 text-right">产品数</th>
@@ -267,7 +267,7 @@ function CategoryParamHeatmap({
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] border-collapse text-left text-sm">
-          <thead className="bg-[#3F4A35] text-xs uppercase tracking-[0.08em] text-white">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-slate-600">
             <tr>
               <th className="px-3 py-3">品类</th>
               {MATRIX_PARAM_KEYS.map((paramKey) => (

@@ -57,7 +57,7 @@ export function ScanPanel() {
         <button
           type="submit"
           disabled={isScanning}
-          className="mt-7 inline-flex h-11 items-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-7 inline-flex h-11 items-center gap-2 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isScanning ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -84,7 +84,7 @@ export function ScanPanel() {
 
           {result.errors.length > 0 ? (
             <div className="mt-4 overflow-hidden rounded-md border border-line">
-              <div className="bg-[#ebe5d8] px-3 py-2 text-sm font-semibold">扫描日志</div>
+              <div className="bg-cream px-3 py-2 text-sm font-semibold">扫描日志</div>
               <div className="max-h-72 overflow-auto bg-white">
                 {result.errors.map((error) => (
                   <div key={`${error.reason}:${error.path}`} className="border-t border-line px-3 py-2 text-xs">

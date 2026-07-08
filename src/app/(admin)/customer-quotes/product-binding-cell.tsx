@@ -261,7 +261,7 @@ function SearchResultRow({
         type="button"
         onClick={(event) => onBind(event, product)}
         disabled={disabled}
-        className="self-center rounded-sm bg-ink px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
+        className="self-center rounded-sm bg-primary hover:bg-primary-hover px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
       >
         选择
       </button>

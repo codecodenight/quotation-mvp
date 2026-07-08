@@ -74,6 +74,7 @@ describe("quote history helpers", () => {
         profitMargin: { toString: () => "0.2" },
         exchangeRate: { toString: () => "7.2" },
         quoteFilePath: "/tmp/quote.xlsx",
+        status: "sent",
         createdAt,
         _count: { items: 3 },
       }),
@@ -86,6 +87,7 @@ describe("quote history helpers", () => {
       createdAt: createdAt.toISOString(),
       itemCount: 3,
       filePath: "/tmp/quote.xlsx",
+      status: "sent",
     });
   });
 

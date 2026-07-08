@@ -31,6 +31,32 @@ export type DeepSeekClient = {
   };
 };
 
+export async function createDeepSeekChatStream(
+  input: ChatCompletionCreateParamsNonStreaming,
+): Promise<ReadableStream<Uint8Array>> {
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("DeepSeek API Key 未配置。请在 .env.local 里设置 DEEPSEEK_API_KEY。");
+  }
+
+  const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ...input, stream: true }),
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`DeepSeek 请求失败：${response.status} ${detail.slice(0, 300)}`);
+  }
+
+  return response.body;
+}
+
 export function getDeepSeekClient(): DeepSeekClient {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {

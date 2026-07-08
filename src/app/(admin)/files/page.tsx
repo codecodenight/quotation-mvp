@@ -69,12 +69,12 @@ export default async function FilesPage({ searchParams }: FilesPageProps) {
             </option>
           ))}
         </select>
-        <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">筛选</button>
+        <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">筛选</button>
       </form>
 
       <div className="overflow-hidden rounded-md border border-line bg-paper shadow-panel">
         <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-[#ebe5d8] text-xs uppercase tracking-[0.08em] text-stone-600">
+          <thead className="bg-cream text-xs uppercase tracking-[0.08em] text-stone-600">
             <tr>
               <th className="px-3 py-3">文件名</th>
               <th className="px-3 py-3">类型</th>

@@ -119,8 +119,16 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
             搜索已导入的客户 FOB USD 报价记录；未匹配到产品库的历史价格也会显示。
           </p>
         </div>
-        <div className="rounded-md border border-line bg-paper px-4 py-2 text-sm font-semibold text-ink shadow-panel">
-          {formatInteger(totalRows)} 条记录
+        <div className="flex items-center gap-2">
+          <Link
+            href="/customer-quotes/matching"
+            className="rounded-md border border-leaf bg-leaf px-4 py-2 text-sm font-semibold text-white shadow-panel hover:opacity-90"
+          >
+            半自动匹配
+          </Link>
+          <div className="rounded-md border border-line bg-paper px-4 py-2 text-sm font-semibold text-ink shadow-panel">
+            {formatInteger(totalRows)} 条记录
+          </div>
         </div>
       </header>
 
@@ -173,7 +181,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
           <input type="hidden" name="sort" value={filters.sort} />
           <input type="hidden" name="order" value={filters.order} />
           <div className="flex items-end">
-            <button className="h-10 rounded-md bg-ink px-5 text-sm font-semibold text-white">搜索</button>
+            <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-5 text-sm font-semibold text-white">搜索</button>
           </div>
           <div className="flex items-end">
             <Link
@@ -202,7 +210,7 @@ export default async function CustomerQuotesPage({ searchParams }: CustomerQuote
       </section>
 
       <section className="overflow-hidden rounded-md border border-line bg-paper shadow-panel">
-        <div className="grid grid-cols-[88px_minmax(96px,0.7fr)_minmax(140px,0.9fr)_minmax(132px,0.9fr)_minmax(180px,1.5fr)_96px_96px_minmax(140px,1fr)] gap-3 bg-[#3F4A35] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-white">
+        <div className="grid grid-cols-[88px_minmax(96px,0.7fr)_minmax(140px,0.9fr)_minmax(132px,0.9fr)_minmax(180px,1.5fr)_96px_96px_minmax(140px,1fr)] gap-3 bg-cream px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
           <SortableHeader label="日期" field="date" filters={filters} />
           <div>客户</div>
           <SortableHeader label="型号" field="model" filters={filters} />

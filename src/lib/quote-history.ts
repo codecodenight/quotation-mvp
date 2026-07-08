@@ -32,7 +32,15 @@ export type QuoteSearchResult = {
   createdAt: string;
   itemCount: number;
   filePath: string | null;
+  status: QuoteStatus;
 };
+
+export const QUOTE_STATUSES = ["draft", "sent", "won", "lost"] as const;
+export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+export function parseQuoteStatus(value: string): QuoteStatus {
+  return (QUOTE_STATUSES as readonly string[]).includes(value) ? (value as QuoteStatus) : "draft";
+}
 
 export type QuoteDetail = {
   id: string;
@@ -70,6 +78,7 @@ type QuoteSearchRow = {
   profitMargin: SerializableDecimal;
   exchangeRate: SerializableDecimal | null;
   quoteFilePath: string | null;
+  status: string;
   createdAt: Date;
   _count: {
     items: number;
@@ -152,6 +161,7 @@ export function serializeQuoteSearchResult(quote: QuoteSearchRow): QuoteSearchRe
     createdAt: quote.createdAt.toISOString(),
     itemCount: quote._count.items,
     filePath: quote.quoteFilePath,
+    status: parseQuoteStatus(quote.status),
   };
 }
 

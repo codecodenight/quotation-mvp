@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Download, FileSpreadsheet, Loader2, Plus, Search, Send, Trash2, X } from "lucide-react";
+import { BarChart3, Bot, Coins, Download, FileSpreadsheet, History, Loader2, Plus, Search, Send, Trash2, X } from "lucide-react";
 import Image from "next/image";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
@@ -10,8 +10,6 @@ import {
   generateQuoteFromChatDraft,
   getProductOffersForChat,
   previewChatDraft,
-  sendChatMessage,
-  type AssistantChatResponse,
   type ChatQuoteGenerateResult,
 } from "./actions";
 import { getToolResultLabel } from "./tool-result-labels";
@@ -61,6 +59,12 @@ const DEFAULT_QUOTE_SETTINGS: QuoteSettings = {
   exchangeRate: "7.2",
   customerMode: true,
 };
+const TOOL_LABEL_ICONS: Record<string, ReactNode> = {
+  search_products: <Search size={12} />,
+  compare_factories: <BarChart3 size={12} />,
+  get_product_offers: <Coins size={12} />,
+  search_customer_history: <History size={12} />,
+};
 const CHAT_WARNING_TIER_ORDER = ["customer", "quote", "logistics"] as const;
 const CHAT_WARNING_TIER_META: Record<
   (typeof CHAT_WARNING_TIER_ORDER)[number],
@@ -97,6 +101,8 @@ export function ChatClient() {
   const [draftPreview, setDraftPreview] = useState<QuotePreviewData | null>(null);
   const [quoteResult, setQuoteResult] = useState<ChatQuoteGenerateResult | null>(null);
   const [queryStartTime, setQueryStartTime] = useState<number | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isGeneratingQuote, startQuoteTransition] = useTransition();
   const [isPreviewingDraft, startDraftPreviewTransition] = useTransition();
@@ -152,12 +158,14 @@ export function ChatClient() {
   function submitMessage(event?: FormEvent<HTMLFormElement>, override?: string) {
     event?.preventDefault();
     const text = (override ?? input).trim();
-    if (!text || isPending) {
+    if (!text || isStreaming || isPending) {
       return;
     }
 
     setInput("");
     setQueryStartTime(Date.now());
+    setIsStreaming(true);
+    setStreamStatus("正在思考");
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -165,26 +173,93 @@ export function ChatClient() {
       toolResults: [],
       toolCalls: [],
     };
-    setMessages((current) => [...current, userMessage]);
-
-    startTransition(async () => {
-      const response = await sendChatMessage(text, compactHistory);
-      appendAssistantResponse(response);
-    });
-  }
-
-  function appendAssistantResponse(response: AssistantChatResponse) {
-    setQueryStartTime(null);
+    const assistantId = crypto.randomUUID();
     setMessages((current) => [
       ...current,
-      {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: response.text,
-        toolResults: response.toolResults,
-        toolCalls: response.toolCalls,
-      },
+      userMessage,
+      { id: assistantId, role: "assistant", text: "", toolResults: [], toolCalls: [] },
     ]);
+
+    const historySnapshot = compactHistory;
+    const patchAssistant = (patch: (message: ChatMessage) => ChatMessage) => {
+      setMessages((current) => current.map((message) => (message.id === assistantId ? patch(message) : message)));
+    };
+
+    void (async () => {
+      try {
+        const response = await fetch("/chat/api/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, history: historySnapshot }),
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`请求失败（${response.status}）`);
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        const handleEvent = (line: string) => {
+          if (!line) {
+            return;
+          }
+          let event: {
+            type: string;
+            text?: string;
+            tool?: string;
+            result?: ChatToolResult;
+            toolCalls?: ToolCallRecord[];
+            message?: string;
+          };
+          try {
+            event = JSON.parse(line);
+          } catch {
+            return;
+          }
+          if (event.type === "delta" && event.text) {
+            setStreamStatus(null);
+            patchAssistant((message) => ({ ...message, text: message.text + event.text }));
+          } else if (event.type === "status" && event.tool) {
+            const label = getToolResultLabel(event.tool);
+            setStreamStatus(label ?? "正在查询");
+          } else if (event.type === "tool_result" && event.result) {
+            patchAssistant((message) => ({ ...message, toolResults: [...message.toolResults, event.result!] }));
+          } else if (event.type === "done") {
+            patchAssistant((message) => ({
+              ...message,
+              toolCalls: event.toolCalls ?? [],
+              text: message.text || "查询完成，结果如下。",
+            }));
+          } else if (event.type === "error" && event.message) {
+            patchAssistant((message) => ({ ...message, text: message.text || event.message! }));
+          }
+        };
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          let newlineIndex = buffer.indexOf("\n");
+          while (newlineIndex >= 0) {
+            handleEvent(buffer.slice(0, newlineIndex).trim());
+            buffer = buffer.slice(newlineIndex + 1);
+            newlineIndex = buffer.indexOf("\n");
+          }
+        }
+        if (buffer.trim()) {
+          handleEvent(buffer.trim());
+        }
+      } catch (error) {
+        patchAssistant((message) => ({
+          ...message,
+          text: message.text || (error instanceof Error ? error.message : "网络繁忙，请稍后重试。"),
+        }));
+      } finally {
+        setIsStreaming(false);
+        setStreamStatus(null);
+        setQueryStartTime(null);
+      }
+    })();
   }
 
   function addDraftItem(product: ChatProductCard, offer = product.recommended_offer) {
@@ -385,7 +460,7 @@ export function ChatClient() {
         onChange={(event) => setInput(event.target.value)}
         rows={2}
         placeholder="输入：找 36W 面板灯、对比工厂、查历史价格..."
-        className="w-full resize-none rounded-2xl border border-violet-200/80 bg-white px-5 py-4 pr-14 text-sm leading-relaxed text-slate-800 shadow-lg shadow-violet-500/[0.06] outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-violet-400 focus:shadow-violet-500/[0.12] focus:ring-2 focus:ring-violet-200/60"
+        className="w-full resize-none rounded-2xl border border-line bg-white px-5 py-4 pr-14 text-sm leading-relaxed text-slate-800 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-200/60"
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -395,8 +470,8 @@ export function ChatClient() {
       />
       <button
         type="submit"
-        disabled={isPending || !input.trim()}
-        className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-500/30 transition-all duration-200 hover:shadow-lg hover:shadow-violet-500/40 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+        disabled={isStreaming || isPending || !input.trim()}
+        className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white transition-all duration-200 hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
       >
         <Send size={16} />
       </button>
@@ -405,12 +480,13 @@ export function ChatClient() {
 
   if (!hasConversation) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <div className="flex h-screen">
+        <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-end px-6">
           <button
             type="button"
             onClick={() => setIsDraftOpen((value) => !value)}
-            className="inline-flex items-center gap-2 rounded-xl border border-violet-200/60 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm backdrop-blur-sm transition-all duration-200 hover:border-violet-300 hover:shadow-md"
+            className="inline-flex items-center gap-2 rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:shadow-md"
           >
             <FileSpreadsheet size={16} className="text-violet-500" />
             报价草稿 ({draftItems.length})
@@ -420,10 +496,10 @@ export function ChatClient() {
         <main className="flex flex-1 flex-col items-center justify-center px-4 pb-24">
           <div className="w-full max-w-2xl animate-fade-in-up">
             <div className="mb-8 flex flex-col items-center text-center">
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-500/30">
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 shadow-md">
                 <Bot size={28} className="text-white" />
               </div>
-              <h1 className="bg-gradient-to-r from-violet-700 to-indigo-600 bg-clip-text text-3xl font-bold tracking-tight text-transparent">
+              <h1 className="text-3xl font-bold tracking-tight text-ink">
                 报价助手
               </h1>
               <p className="mt-2 text-sm text-slate-500">
@@ -437,7 +513,7 @@ export function ChatClient() {
                   key={prompt.text}
                   type="button"
                   onClick={() => submitMessage(undefined, prompt.text)}
-                  className="group rounded-xl border border-violet-100 bg-white/80 px-4 py-3.5 text-left shadow-sm backdrop-blur-sm transition-all duration-200 hover:border-violet-300 hover:bg-violet-50/50 hover:shadow-md"
+                  className="group rounded-xl border border-line bg-white px-4 py-3.5 text-left shadow-sm transition-all duration-200 hover:border-violet-300 hover:bg-cream hover:shadow-md"
                 >
                   <div className="text-sm font-medium text-slate-800">{prompt.text}</div>
                   <div className="mt-0.5 text-xs text-slate-400 transition-colors group-hover:text-violet-500">{prompt.desc}</div>
@@ -450,6 +526,7 @@ export function ChatClient() {
             </form>
           </div>
         </main>
+        </div>
 
         {isDraftOpen ? (
           <QuoteDraftPanel
@@ -473,11 +550,11 @@ export function ChatClient() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen">
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-violet-200/40 bg-white/70 px-6 backdrop-blur-xl">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-white px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 shadow-sm shadow-violet-500/20">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
               <Bot size={16} className="text-white" />
             </div>
             <div>
@@ -489,7 +566,7 @@ export function ChatClient() {
             <button
               type="button"
               onClick={clearMessages}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-500 transition-all duration-200 hover:border-red-300 hover:text-red-500"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition-all duration-200 hover:border-red-300 hover:text-red-500"
             >
               <Trash2 size={14} />
               清空
@@ -497,7 +574,7 @@ export function ChatClient() {
             <button
               type="button"
               onClick={() => setIsDraftOpen((value) => !value)}
-              className="inline-flex items-center gap-2 rounded-lg border border-violet-200/60 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:shadow-md"
+              className="inline-flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:shadow-md"
             >
               <FileSpreadsheet size={14} className="text-violet-500" />
               草稿 ({draftItems.length})
@@ -507,25 +584,27 @@ export function ChatClient() {
 
         <section className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-1 px-4 py-6">
-            {messages.map((message) => (
-              <ChatMessageView
-                key={message.id}
-                message={message}
-                onAddDraft={addDraftItem}
-                onLoadOffers={loadOffers}
-                onAddOffer={addOfferFromDetails}
-                onOpenSourceFile={openSourceFile}
-              />
-            ))}
-            {isPending && queryStartTime ? (
+            {messages
+              .filter((message) => !(message.role === "assistant" && !message.text && message.toolResults.length === 0))
+              .map((message) => (
+                <ChatMessageView
+                  key={message.id}
+                  message={message}
+                  onAddDraft={addDraftItem}
+                  onLoadOffers={loadOffers}
+                  onAddOffer={addOfferFromDetails}
+                  onOpenSourceFile={openSourceFile}
+                />
+              ))}
+            {(isStreaming && streamStatus) || (isPending && queryStartTime) ? (
               <div className="flex gap-3 py-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary">
                   <Bot size={14} className="animate-subtle-pulse text-white" />
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <Loader2 className="animate-spin text-violet-500" size={15} />
-                  正在查询...
-                  <ElapsedTimer startTime={queryStartTime} />
+                  {streamStatus ?? "正在查询"}...
+                  {queryStartTime ? <ElapsedTimer startTime={queryStartTime} /> : null}
                 </div>
               </div>
             ) : null}
@@ -533,7 +612,7 @@ export function ChatClient() {
           </div>
         </section>
 
-        <div className="border-t border-violet-200/40 bg-white/70 px-4 py-4 backdrop-blur-xl">
+        <div className="border-t border-line bg-white px-4 py-4">
           <form onSubmit={submitMessage} className="mx-auto max-w-3xl">
             {inputArea}
           </form>
@@ -596,7 +675,7 @@ function ChatMessageView({
   if (isUser) {
     return (
       <article className="flex justify-end py-3 animate-fade-in-up">
-        <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-3 shadow-md shadow-violet-500/20">
+        <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-5 py-3">
           <div className="whitespace-pre-wrap text-sm leading-relaxed text-white">{message.text}</div>
         </div>
       </article>
@@ -605,11 +684,11 @@ function ChatMessageView({
 
   return (
     <article className="flex gap-3 py-3 animate-fade-in-up">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 shadow-sm shadow-violet-500/20">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary">
         <Bot size={14} className="text-white" />
       </div>
       <div className="min-w-0 flex-1 space-y-3">
-        <div className="prose prose-sm prose-slate max-w-none prose-headings:my-2 prose-headings:text-slate-800 prose-p:my-2 prose-table:text-sm prose-th:bg-gradient-to-r prose-th:from-violet-600 prose-th:to-indigo-600 prose-th:text-white prose-td:border prose-td:border-violet-100 prose-th:border prose-th:border-violet-300/50">
+        <div className="prose prose-sm prose-slate max-w-none prose-headings:my-2 prose-headings:text-slate-800 prose-p:my-2 prose-table:text-sm prose-th:bg-cream prose-th:text-slate-600 prose-td:border prose-td:border-line prose-th:border prose-th:border-line">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
         </div>
         {message.toolResults.length > 0 ? (
@@ -684,7 +763,10 @@ function ToolResultView({
   return (
     <div>
       {label ? (
-        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-violet-400">{label}</div>
+        <div className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          {TOOL_LABEL_ICONS[result.toolName] ?? null}
+          {label}
+        </div>
       ) : null}
       {content}
     </div>
@@ -703,7 +785,7 @@ function ProductCardList({
   onOpenSourceFile: (fileId: string) => void;
 }) {
   if (result.products.length === 0) {
-    return <div className="rounded-xl border border-violet-100 bg-white/80 p-4 text-sm text-slate-500">没有找到匹配产品。</div>;
+    return <div className="rounded-xl border border-line bg-white p-4 text-sm text-slate-500">没有找到匹配产品。</div>;
   }
   return (
     <div className="grid gap-3">
@@ -711,7 +793,7 @@ function ProductCardList({
         找到 {result.total} 个匹配产品
       </div>
       {result.products.map((product) => (
-        <div key={product.id} className="rounded-xl border border-violet-100/80 bg-white/90 p-4 shadow-sm transition-all duration-200 hover:shadow-md">
+        <div key={product.id} className="rounded-xl border border-line bg-white/90 p-4 shadow-sm transition-all duration-200 hover:shadow-md">
           <div className="flex gap-3">
             <ProductThumb product={product} />
             <div className="min-w-0 flex-1">
@@ -736,7 +818,7 @@ function ProductCardList({
                   <button
                     type="button"
                     onClick={() => onOpenSourceFile(product.recommended_offer!.source_file_id!)}
-                    className="mt-1.5 flex max-w-full items-center gap-1 truncate rounded-lg border border-violet-100 bg-violet-50/50 px-2 py-0.5 text-xs text-slate-400 transition-colors hover:border-violet-300 hover:text-violet-600"
+                    className="mt-1.5 flex max-w-full items-center gap-1 truncate rounded-lg border border-line bg-cream px-2 py-0.5 text-xs text-slate-400 transition-colors hover:border-violet-300 hover:text-violet-600"
                     title={product.recommended_offer.source_file_name ?? ""}
                   >
                     <FileSpreadsheet size={12} />
@@ -749,7 +831,7 @@ function ProductCardList({
               <button
                 type="button"
                 onClick={() => onLoadOffers(product.id)}
-                className="rounded-lg border border-violet-200/80 px-3 py-1.5 text-xs font-medium text-slate-600 transition-all duration-200 hover:border-violet-400 hover:text-violet-700"
+                className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-slate-600 transition-all duration-200 hover:border-violet-400 hover:text-violet-700"
               >
                 全部报价
               </button>
@@ -757,7 +839,7 @@ function ProductCardList({
                 type="button"
                 disabled={!product.recommended_offer}
                 onClick={() => onAddDraft(product)}
-                className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-violet-500/20 transition-all hover:shadow-md disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-40"
               >
                 <Plus size={14} />
                 加入
@@ -780,11 +862,11 @@ function OfferComparisonTable({
   onOpenSourceFile: (fileId: string) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-violet-100/80 bg-white/90 shadow-sm">
-      <div className="border-b border-violet-100 px-4 py-2.5 text-sm font-semibold text-slate-800">
+    <div className="overflow-hidden rounded-xl border border-line bg-white/90 shadow-sm">
+      <div className="border-b border-line px-4 py-2.5 text-sm font-semibold text-slate-800">
         {result.model_no || result.product_name} / {result.offers.length} 条报价
       </div>
-      <div className="grid grid-cols-[1fr_100px_80px_120px_84px] bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-xs font-semibold text-white">
+      <div className="grid grid-cols-[1fr_100px_80px_120px_84px] bg-cream px-4 py-2.5 text-xs font-semibold text-slate-600">
         <div>工厂</div>
         <div>价格</div>
         <div>MOQ</div>
@@ -792,7 +874,7 @@ function OfferComparisonTable({
         <div>操作</div>
       </div>
       {result.offers.map((offer) => (
-        <div key={offer.id} className="grid grid-cols-[1fr_100px_80px_120px_84px] items-center border-t border-violet-50 px-4 py-2.5 text-sm transition-colors hover:bg-violet-50/40">
+        <div key={offer.id} className="grid grid-cols-[1fr_100px_80px_120px_84px] items-center border-t border-line px-4 py-2.5 text-sm transition-colors hover:bg-cream/60">
           <div className="min-w-0">
             <div className="font-medium text-slate-800">{offer.factory_name}</div>
             {offer.source_file_id && offer.source_file_name ? (
@@ -820,7 +902,7 @@ function OfferComparisonTable({
           <button
             type="button"
             onClick={() => onAddOffer(result, offer)}
-            className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm shadow-violet-500/20 transition-shadow hover:shadow-md"
+            className="rounded-lg bg-primary px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-hover"
           >
             加入
           </button>
@@ -832,19 +914,19 @@ function OfferComparisonTable({
 
 function HistoryTable({ result }: { result: CustomerHistoryResult }) {
   if (result.rows.length === 0) {
-    return <div className="rounded-xl border border-violet-100 bg-white/80 p-4 text-sm text-slate-500">没有找到历史客户报价记录。</div>;
+    return <div className="rounded-xl border border-line bg-white p-4 text-sm text-slate-500">没有找到历史客户报价记录。</div>;
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-violet-100/80 bg-white/90 shadow-sm">
-      <div className="border-b border-violet-100 px-4 py-2.5 text-sm font-semibold text-slate-800">历史报价 {result.total} 条</div>
-      <div className="grid grid-cols-[110px_1fr_90px_120px] bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-xs font-semibold text-white">
+    <div className="overflow-hidden rounded-xl border border-line bg-white/90 shadow-sm">
+      <div className="border-b border-line px-4 py-2.5 text-sm font-semibold text-slate-800">历史报价 {result.total} 条</div>
+      <div className="grid grid-cols-[110px_1fr_90px_120px] bg-cream px-4 py-2.5 text-xs font-semibold text-slate-600">
         <div>日期</div>
         <div>型号</div>
         <div>FOB USD</div>
         <div>客户</div>
       </div>
       {result.rows.map((row, index) => (
-        <div key={`${row.raw_model}-${index}`} className="grid grid-cols-[110px_1fr_90px_120px] border-t border-violet-50 px-4 py-2.5 text-sm transition-colors hover:bg-violet-50/40">
+        <div key={`${row.raw_model}-${index}`} className="grid grid-cols-[110px_1fr_90px_120px] border-t border-line px-4 py-2.5 text-sm transition-colors hover:bg-cream/60">
           <div className="text-slate-600">{row.quote_date || "-"}</div>
           <div className="truncate text-slate-800" title={row.raw_description ?? ""}>
             {row.raw_model || row.matched_product_name || "-"}
@@ -859,12 +941,12 @@ function HistoryTable({ result }: { result: CustomerHistoryResult }) {
 
 function FactoryComparisonCard({ result }: { result: FactoryComparisonResult }) {
   if (result.comparison.length === 0) {
-    return <div className="rounded-xl border border-violet-100 bg-white/80 p-4 text-sm text-slate-500">没有找到该品类的工厂报价对比。</div>;
+    return <div className="rounded-xl border border-line bg-white p-4 text-sm text-slate-500">没有找到该品类的工厂报价对比。</div>;
   }
   return (
     <div className="grid gap-2">
       {result.comparison.map((factory) => (
-        <div key={factory.factory_name} className="rounded-xl border border-violet-100/80 bg-white/90 p-4 shadow-sm transition-all duration-200 hover:shadow-md">
+        <div key={factory.factory_name} className="rounded-xl border border-line bg-white/90 p-4 shadow-sm transition-all duration-200 hover:shadow-md">
           <div className="flex items-center justify-between gap-3">
             <div className="font-semibold text-slate-800">{factory.factory_name}</div>
             <div className="font-medium text-violet-700">
@@ -910,25 +992,25 @@ function QuoteDraftPanel({
   onGenerate: () => void;
 }) {
   return (
-    <aside className="flex w-[420px] shrink-0 flex-col border-l border-violet-200/40 bg-white/70 backdrop-blur-xl">
-      <header className="flex h-14 items-center justify-between border-b border-violet-200/40 px-4">
+    <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-white">
+      <header className="flex h-14 items-center justify-between border-b border-line px-4">
         <div>
           <div className="font-semibold text-slate-800">报价草稿</div>
           <div className="text-xs text-slate-400">{items.length} 个产品</div>
         </div>
-        <button type="button" onClick={onClose} className="rounded-lg border border-violet-200/60 p-2 text-slate-400 transition-colors hover:border-violet-300 hover:text-violet-600">
+        <button type="button" onClick={onClose} className="rounded-lg border border-line p-2 text-slate-400 transition-colors hover:border-violet-300 hover:text-violet-600">
           <X size={16} />
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="grid gap-3">
           {items.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-violet-200 p-5 text-center text-sm text-slate-400">
+            <div className="rounded-xl border border-dashed border-line p-5 text-center text-sm text-slate-400">
               还没有加入产品
             </div>
           ) : null}
           {items.map((item) => (
-            <div key={item.productId} className="rounded-xl border border-violet-100/80 bg-white/90 p-3 shadow-sm">
+            <div key={item.productId} className="rounded-xl border border-line bg-white/90 p-3 shadow-sm">
               <div className="flex justify-between gap-3">
                 <div>
                   <div className="font-semibold text-slate-800">{item.modelNo || item.productName}</div>
@@ -959,7 +1041,7 @@ function QuoteDraftPanel({
           ))}
         </div>
       </div>
-      <footer className="border-t border-violet-200/40 p-4">
+      <footer className="border-t border-line p-4">
         <div className="grid gap-2">
           <input
             value={settings.customerName}
@@ -987,7 +1069,7 @@ function QuoteDraftPanel({
               className={draftInputClass}
             />
           </div>
-          <label className="flex items-center gap-2 rounded-xl border border-violet-100 bg-white/80 px-3 py-2 text-xs font-medium text-slate-600">
+          <label className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium text-slate-600">
             <input
               type="checkbox"
               checked={!settings.customerMode}
@@ -1002,7 +1084,7 @@ function QuoteDraftPanel({
               type="button"
               onClick={onPreview}
               disabled={items.length === 0 || isPreviewing}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-sm font-semibold text-white shadow-md shadow-violet-500/20 transition-all hover:shadow-lg disabled:opacity-40"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-40"
             >
               {isPreviewing ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
               预览报价
@@ -1013,7 +1095,7 @@ function QuoteDraftPanel({
                 type="button"
                 onClick={onPreview}
                 disabled={items.length === 0 || isPreviewing}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white text-sm font-semibold text-slate-700 transition-all hover:border-violet-400 disabled:opacity-40"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white text-sm font-semibold text-slate-700 transition-all hover:border-violet-400 disabled:opacity-40"
               >
                 {isPreviewing ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
                 重新预览
@@ -1022,7 +1104,7 @@ function QuoteDraftPanel({
                 type="button"
                 onClick={onGenerate}
                 disabled={items.length === 0 || isGenerating}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-sm font-semibold text-white shadow-md shadow-violet-500/20 transition-all hover:shadow-lg disabled:opacity-40"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:opacity-40"
               >
                 {isGenerating ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
                 生成报价单
@@ -1052,17 +1134,17 @@ function ChatDraftPreview({ preview }: { preview: QuotePreviewData }) {
   const warningRows = preview.rows.filter((row) => row.warnings.length > 0);
 
   return (
-    <div className="rounded-xl border border-violet-100/80 bg-white/90">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-violet-100 px-3 py-2">
+    <div className="rounded-xl border border-line bg-white/90">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
         <div className="text-sm font-semibold text-slate-800">报价预览</div>
         <ChatPreviewWarningBadges preview={preview} />
       </div>
       <div className="max-h-80 overflow-auto">
         <table className="w-full border-collapse text-xs">
-          <thead className="sticky top-0 bg-violet-50 text-slate-700">
+          <thead className="sticky top-0 bg-cream text-slate-700">
             <tr>
               {preview.columns.map((column) => (
-                <th key={column.key} className="whitespace-nowrap border-b border-violet-100 px-2 py-2 text-center font-semibold">
+                <th key={column.key} className="whitespace-nowrap border-b border-line px-2 py-2 text-center font-semibold">
                   {column.header}
                 </th>
               ))}
@@ -1124,7 +1206,7 @@ function getChatPreviewCellClass(column: QuotePreviewData["columns"][number]): s
   const alignment = column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left";
   const whitespace = column.key === "productDetails" ? "whitespace-pre-line" : "whitespace-nowrap";
   const width = column.key === "productDetails" ? "min-w-52 max-w-72" : column.key === "image" ? "w-16 min-w-16" : "";
-  return `border-t border-violet-50 px-2 py-2 align-middle text-slate-700 ${alignment} ${whitespace} ${width}`.trim();
+  return `border-t border-line px-2 py-2 align-middle text-slate-700 ${alignment} ${whitespace} ${width}`.trim();
 }
 
 function formatChatPreviewCell(
@@ -1142,7 +1224,7 @@ function formatChatPreviewCell(
         alt=""
         width={48}
         height={48}
-        className="mx-auto h-12 w-12 rounded-lg border border-violet-100 object-contain"
+        className="mx-auto h-12 w-12 rounded-lg border border-line object-contain"
       />
     );
   }
@@ -1170,7 +1252,7 @@ function confirmSuspiciousLowChatExport(preview: QuotePreviewData): boolean {
 function ProductThumb({ product }: { product: ChatProductCard }) {
   if (!product.image_path) {
     return (
-      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-violet-50/50 text-violet-300">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-line bg-cream text-slate-300">
         <Search size={18} />
       </div>
     );
@@ -1181,7 +1263,7 @@ function ProductThumb({ product }: { product: ChatProductCard }) {
       alt={product.model_no || product.product_name}
       width={64}
       height={64}
-      className="h-16 w-16 shrink-0 rounded-xl border border-violet-100 object-cover"
+      className="h-16 w-16 shrink-0 rounded-xl border border-line object-cover"
     />
   );
 }
@@ -1193,7 +1275,7 @@ function ParamBadges({ params }: { params: ChatProductCard["params"] }) {
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
       {params.slice(0, 6).map((param) => (
-        <span key={`${param.key}-${param.value}`} className="rounded-full border border-violet-100 bg-violet-50/60 px-2.5 py-0.5 text-xs text-slate-600">
+        <span key={`${param.key}-${param.value}`} className="rounded-full border border-line bg-cream px-2.5 py-0.5 text-xs text-slate-600">
           {param.key}: {param.value}
           {param.unit ?? ""}
         </span>
@@ -1203,4 +1285,4 @@ function ParamBadges({ params }: { params: ChatProductCard["params"] }) {
 }
 
 const draftInputClass =
-  "h-10 rounded-xl border border-violet-200/60 bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400 focus:ring-1 focus:ring-violet-200/60";
+  "h-10 rounded-xl border border-line bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400 focus:ring-1 focus:ring-violet-200/60";

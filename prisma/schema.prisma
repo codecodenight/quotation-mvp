@@ -194,6 +194,7 @@ model Quote {
   profitMargin Decimal  @map("profit_margin")
   exchangeRate Decimal? @map("exchange_rate")
   quoteFilePath String? @map("quote_file_path")
+  status        String   @default("draft") // draft | sent | won | lost
   createdAt     DateTime @default(now()) @map("created_at")
 
   items QuoteItem[]
@@ -220,4 +221,14 @@ model QuoteItem {
   @@index([quoteId])
   @@index([productId])
   @@map("quote_items")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  aliases   String?  // JSON array of alternate spellings, e.g. ["HTF Ltd","HTF"]
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("customers")
 }

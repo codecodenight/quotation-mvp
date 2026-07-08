@@ -4,9 +4,12 @@ import { Prisma } from "@prisma/client";
 import { rankOffers, type OfferBadge } from "@/lib/offer-ranking";
 import { formatParamLabel, sortDisplayParams } from "@/lib/product-param-display";
 import { getProductIdsByParamRange } from "@/lib/product-filters";
+import {
+  buildParamFilter,
+  buildProductIdsFilter,
+  intersectProductIdFilters,
+} from "@/lib/product-where-filters";
 import { prisma } from "@/lib/prisma";
-
-const PRODUCT_ID_FILTER_CHUNK_SIZE = 400;
 
 export type ChatToolName =
   | "search_products"
@@ -820,53 +823,8 @@ function buildProductWhere({
   };
 }
 
-function buildProductIdsFilter(productIds: string[]): Prisma.ProductWhereInput {
-  if (productIds.length <= PRODUCT_ID_FILTER_CHUNK_SIZE) {
-    return { id: { in: productIds } };
-  }
-
-  const chunks: Prisma.ProductWhereInput[] = [];
-  for (let index = 0; index < productIds.length; index += PRODUCT_ID_FILTER_CHUNK_SIZE) {
-    chunks.push({ id: { in: productIds.slice(index, index + PRODUCT_ID_FILTER_CHUNK_SIZE) } });
-  }
-  return { OR: chunks };
-}
-
-function buildParamFilter(paramKey: string, filterValue: string): Prisma.ProductWhereInput {
-  return {
-    OR: [
-      {
-        params: {
-          some: {
-            paramKey,
-            normalizedValue: filterValue,
-          },
-        },
-      },
-      {
-        params: {
-          none: {
-            paramKey,
-            normalizedValue: { not: null },
-          },
-        },
-      },
-    ],
-  };
-}
-
 async function getWattsProductIds(minWatts: number | null, maxWatts: number | null): Promise<string[] | null> {
   return getProductIdsByParamRange("watts", minWatts, maxWatts);
-}
-
-function intersectProductIdFilters(
-  left: string[] | null,
-  right: string[] | null,
-): string[] | null {
-  if (left === null) return right;
-  if (right === null) return left;
-  const rightIds = new Set(right);
-  return left.filter((id) => rightIds.has(id));
 }
 
 function readArgs(args: unknown): Record<string, unknown> {

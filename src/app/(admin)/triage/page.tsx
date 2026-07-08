@@ -99,7 +99,7 @@ export default async function TriagePage({ searchParams }: TriagePageProps) {
             </Field>
           </div>
           <div className="mt-3 flex justify-end">
-            <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">筛选</button>
+            <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">筛选</button>
           </div>
         </form>
 
@@ -238,7 +238,7 @@ function NewProductForm({ raw }: { raw: RawForForm }) {
       <Field label="备注">
         <textarea name="remark" defaultValue={raw.rawDescription ?? ""} className={textAreaClass} />
       </Field>
-      <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">
+      <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">
         创建 product + supplier_offer
       </button>
     </form>
@@ -271,7 +271,7 @@ function LinkProductForm({
       <Field label="MOQ（可人工覆盖）">
         <input name="moq" defaultValue={rawMoq ?? ""} className={inputClass} />
       </Field>
-      <button className="h-10 rounded-md bg-ink px-4 text-sm font-semibold text-white">
+      <button className="h-10 rounded-md bg-primary hover:bg-primary-hover px-4 text-sm font-semibold text-white">
         创建 supplier_offer
       </button>
     </form>

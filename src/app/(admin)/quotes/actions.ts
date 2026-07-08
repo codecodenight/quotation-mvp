@@ -12,11 +12,14 @@ import { prisma } from "@/lib/prisma";
 import { buildQuotePreview, type QuotePreviewData } from "@/lib/quote-preview";
 import {
   buildQuoteSearchWhere,
+  parseQuoteStatus,
   serializeQuoteDetail,
   serializeQuoteSearchResult,
+  QUOTE_STATUSES,
   type QuoteDetail,
   type QuoteSearchFilters,
   type QuoteSearchResult,
+  type QuoteStatus,
 } from "@/lib/quote-history";
 import {
   buildReusableQuoteDraft,
@@ -503,6 +506,20 @@ function serializeQuoteSelectionProduct(
     })),
     historicalQuotes,
   };
+}
+
+export async function updateQuoteStatus(quoteId: string, status: string): Promise<QuoteStatus> {
+  const safeId = quoteId.trim();
+  if (!safeId) {
+    throw new Error("报价单 ID 不能为空。");
+  }
+  if (!(QUOTE_STATUSES as readonly string[]).includes(status)) {
+    throw new Error("状态不合法。");
+  }
+  const safeStatus = parseQuoteStatus(status);
+  await prisma.quote.update({ where: { id: safeId }, data: { status: safeStatus } });
+  revalidatePath("/quotes");
+  return safeStatus;
 }
 
 function serializePriceUpdatedAt(value: string | Date | null): string | null {
