@@ -2,7 +2,7 @@
 
 Local-first quotation management tool for supplier price files, product library cleanup, customer quotation generation, and historical price reference.
 
-This is not a SaaS product. It is a local business data tool built around real supplier Excel/PDF quotation files and a local SQLite database.
+This is not a SaaS product. It is a local business data tool built around supplier Excel/PDF quotation files and a local SQLite database.
 
 ## What It Does
 
@@ -29,6 +29,19 @@ As of V10.3:
 - External hard drive dependency: removed for daily use
 
 The repository does not include the live SQLite database, product images, source quotation files, generated quote files, or customer/supplier raw data.
+
+## Public Repository Scope
+
+This public repository is a code and architecture showcase. It includes the application, schema, reusable parsing/export logic, tests, and non-sensitive documentation.
+
+It intentionally excludes private operating assets:
+
+- real customer and supplier quotation files
+- live SQLite databases
+- generated quotation exports
+- product image archives
+- local assistant memory
+- environment secrets
 
 ## Tech Stack
 

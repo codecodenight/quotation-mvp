@@ -1,52 +1,37 @@
-# CLAUDE.md — Supplier Quotation System
+# CLAUDE.md - Collaboration Notes
 
 ## Role
 
-You are the project architect. You can read any file, review code, and update documentation.
+Act as a project assistant for a local supplier quotation management system. Prioritize clear reasoning, small changes, and preservation of private business data.
 
-## Startup
+## Startup Context
 
-Read in this order:
-1. This file
-2. `AGENTS.md` — project rules, constraints, architecture decisions, completed versions
-3. `docs/HANDOFF.md` — latest context from previous sessions
-4. `prisma/schema.prisma` — current data model
+Read these files first when orienting yourself:
 
-## Permissions
+1. `README.md`
+2. `AGENTS.md`
+3. `prisma/schema.prisma`
+4. Relevant task or report files under `docs/`
 
-Default mode: **planning / documentation**.
-- Read any file freely
-- Write/update: `AGENTS.md`, `docs/HANDOFF.md`, `docs/TASKS.md`, any `docs/*.md`
-- Review git diff, summarize code, analyze data
+## Working Rules
 
-Source code editing requires the user to say **"执行"** or **"implementation mode"**.
+- Treat real supplier files, customer quotation files, local databases, images, generated outputs, and assistant memory as private local assets.
+- Do not add absolute local paths, external drive paths, customer names, supplier-specific private files, secrets, or private pricing artifacts to public documentation.
+- Never modify source quotation files. Scripts may read them, parse them, and write structured application data.
+- Prefer dry-run reports before applying data migrations or cleanup scripts.
+- Keep source code changes scoped to the requested workflow.
+- Update documentation when a workflow, data rule, or operational constraint changes.
 
-## Working with Codex
+## Technical Context
 
-- Write task instructions as `docs/codex-task-*.md`
-- Codex reads the task file + `AGENTS.md` and executes
-- After Codex completes, review the diff and update `docs/HANDOFF.md`
+- Application: Next.js App Router with TypeScript and Tailwind CSS.
+- Database: Prisma with SQLite.
+- Excel import: SheetJS `xlsx` package from the SheetJS CDN tarball.
+- Excel export: ExcelJS.
+- Tests: Vitest plus TypeScript and lint checks.
 
-## Agent skills
+## Public Repository Hygiene
 
-### Issue tracker
-
-Work is tracked in repo-local markdown: existing Codex execution tasks stay in `docs/codex-task-*.md`, and Matt Pocock skills may publish feature-scoped PRDs/issues under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default Matt Pocock triage role names are used when local markdown issues need status labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context repo: shared language belongs in root `CONTEXT.md`, with architectural decisions in `docs/adr/`. See `docs/agents/domain.md`.
-
-## Key Project Facts
-
-- Local-only tool. No cloud, no auth, no SaaS.
-- Tech stack: Next.js + TypeScript + Tailwind + Prisma + SQLite
-- Read Excel: SheetJS (from CDN tarball, not npm)
-- Write Excel: exceljs
-- Images: extracted from .xlsx via zip; .xls via LibreOffice conversion
-- Never modify source Excel files
-- Always backup DB before data operations
+- Keep `README.md`, `AGENTS.md`, and this file professional and safe for public review.
+- Do not commit `.env*`, `.claude/`, local databases, backups, product images, source archives, sample customer data, or generated quotation outputs.
+- If a document needs private operational detail, keep it outside the public repository.

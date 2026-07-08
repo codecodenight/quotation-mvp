@@ -12,6 +12,7 @@ sample data/
 .env
 .env.*
 !.env.example
+.claude/
 .DS_Store
 
 # Generated quote files and verification artifacts may contain real customer data.
